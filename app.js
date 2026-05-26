@@ -539,13 +539,26 @@ function Step4Confirm({ state, setState, draft, setDraft, onComplete }) {
     onComplete(newBooking.id, isWaitlist);
   };
 
+  const normEmail = (s) => (s || "").trim().toLowerCase();
+  const normPhone = (s) => (s || "").replace(/[^\d]/g, "");
+  const normName = (s) => (s || "").trim().toLowerCase().replace(/\s+/g, " ");
+
   const handleSubmit = (e) => {
     e.preventDefault();
     if (!ready) return;
-    const email = draft.email.trim().toLowerCase();
-    const existing = state.bookings.filter(
-      (b) => b.email.toLowerCase().trim() === email && (b.status === "booked" || b.status === "waitlist")
-    );
+    const email = normEmail(draft.email);
+    const phone = normPhone(draft.phone);
+    const name = normName(draft.name);
+    const existing = state.bookings.filter((b) => {
+      if (b.status !== "booked" && b.status !== "waitlist") return false;
+      const bEmail = normEmail(b.email);
+      const bPhone = normPhone(b.phone);
+      const bName = normName(b.name);
+      const emailMatch = email && bEmail && bEmail === email;
+      const phoneMatch = phone && bPhone && bPhone === phone;
+      const nameMatch = name && bName && bName === name;
+      return emailMatch || phoneMatch || nameMatch;
+    });
     if (existing.length > 0) {
       setDuplicateWarning({ existing });
       return;
@@ -623,9 +636,9 @@ function DuplicateBookingModal({ existing, state, onClose, onChange, onCancelExi
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h3 style={{color: "var(--amber-500)"}}>Existing Booking Found</h3>
-        <p style={{margin: "0 0 16px", color: "var(--gray-600)", fontSize: "0.92rem"}}>
-          You already have {existing.length === 1 ? "an active booking" : `${existing.length} active bookings`} under this email. To prevent double bookings, please review:
+        <h3 style={{color: "var(--amber-500)"}}>⚠ Existing Booking Found</h3>
+        <p style={{margin: "0 0 16px", color: "var(--gray-700)", fontSize: "0.92rem"}}>
+          We already have {existing.length === 1 ? "an active booking" : `${existing.length} active bookings`} matching your name, email, or phone number. To prevent double bookings, please review:
         </p>
 
         <div className="lesson-list" style={{marginBottom: 16}}>
