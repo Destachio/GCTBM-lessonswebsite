@@ -518,9 +518,9 @@ function Step4Confirm({ state, setState, draft, setDraft, onComplete }) {
 
   const ready = draft.name.trim() && draft.email.trim() && draft.phone.trim();
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (!ready) return;
+  const [duplicateWarning, setDuplicateWarning] = useState(null); // { existing: [...] }
+
+  const finalizeBooking = (removeIds = []) => {
     const newBooking = {
       id: uid("b"),
       timeslotId: ts.id,
@@ -531,9 +531,26 @@ function Step4Confirm({ state, setState, draft, setDraft, onComplete }) {
       bookedAt: new Date().toISOString(),
       attendance: {},
     };
-    setState((s) => ({ ...s, bookings: [...s.bookings, newBooking] }));
+    setState((s) => ({
+      ...s,
+      bookings: [...s.bookings.filter((b) => !removeIds.includes(b.id)), newBooking],
+    }));
     setDraft((d) => ({ ...d, bookingId: newBooking.id }));
     onComplete(newBooking.id, isWaitlist);
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!ready) return;
+    const email = draft.email.trim().toLowerCase();
+    const existing = state.bookings.filter(
+      (b) => b.email.toLowerCase().trim() === email && (b.status === "booked" || b.status === "waitlist")
+    );
+    if (existing.length > 0) {
+      setDuplicateWarning({ existing });
+      return;
+    }
+    finalizeBooking();
   };
 
   return (
@@ -579,6 +596,76 @@ function Step4Confirm({ state, setState, draft, setDraft, onComplete }) {
           {isWaitlist ? "Join Waitlist" : "Proceed to Payment"}
         </button>
       </form>
+
+      {duplicateWarning && (
+        <DuplicateBookingModal
+          existing={duplicateWarning.existing}
+          state={state}
+          setState={setState}
+          onClose={() => setDuplicateWarning(null)}
+          onChange={() => {
+            const ids = duplicateWarning.existing.map((b) => b.id);
+            setDuplicateWarning(null);
+            finalizeBooking(ids);
+          }}
+          onCancelExisting={() => {
+            const ids = duplicateWarning.existing.map((b) => b.id);
+            setState((s) => ({ ...s, bookings: s.bookings.filter((b) => !ids.includes(b.id)) }));
+            setDuplicateWarning(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+function DuplicateBookingModal({ existing, state, onClose, onChange, onCancelExisting }) {
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <h3 style={{color: "var(--amber-500)"}}>Existing Booking Found</h3>
+        <p style={{margin: "0 0 16px", color: "var(--gray-600)", fontSize: "0.92rem"}}>
+          You already have {existing.length === 1 ? "an active booking" : `${existing.length} active bookings`} under this email. To prevent double bookings, please review:
+        </p>
+
+        <div className="lesson-list" style={{marginBottom: 16}}>
+          {existing.map((b) => {
+            const ts = state.timeslots.find((t) => t.id === b.timeslotId);
+            if (!ts) return null;
+            const loc = state.locations[ts.location];
+            return (
+              <div key={b.id} className="lesson-row" style={{flexDirection: "column", alignItems: "flex-start", gap: 4}}>
+                <div style={{display: "flex", justifyContent: "space-between", width: "100%", alignItems: "center"}}>
+                  <span className="lesson-week">{cap(ts.level)} Golf @ {loc?.name}</span>
+                  <span className={`trainee-status ${b.status}`}>{b.status}</span>
+                </div>
+                <span className="lesson-date">
+                  {DAY_PLURAL[ts.day]} • {ts.time} • Coach {loc?.coach?.replace("Coach ", "")}
+                </span>
+                <span className="lesson-date">
+                  Starts {formatShortDate(ts.lessonDates[0])} • {ts.lessonDates.length} lessons
+                </span>
+              </div>
+            );
+          })}
+        </div>
+
+        <p style={{margin: "0 0 16px", color: "var(--gray-700)", fontSize: "0.9rem", fontWeight: 600}}>
+          What would you like to do?
+        </p>
+
+        <div style={{display: "flex", flexDirection: "column", gap: 10}}>
+          <button className="primary-btn" onClick={onChange}>
+            Change to this new booking
+          </button>
+          <button className="secondary-btn" onClick={onCancelExisting}>
+            Cancel existing booking only
+          </button>
+          <button className="secondary-btn" onClick={onClose} style={{background: "transparent", border: "none", color: "var(--gray-500)"}}>
+            Keep existing &mdash; don't book this one
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
