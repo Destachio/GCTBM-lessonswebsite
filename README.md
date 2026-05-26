@@ -1,6 +1,8 @@
 # GCTBM Lessons — Golf Lesson Booking
 
-A single-page web app for booking golf lessons at GCTBM. Built for a non-technical owner: just open `index.html` in any modern browser and it works — no build step, no server, no database.
+**🔗 Live site: https://gctbm-lessonswebsite.vercel.app/**
+
+A single-page web app for booking golf lessons at GCTBM. Trainee data is stored in Supabase (EU region, RLS-protected). Deploys automatically to Vercel on every push to `main`.
 
 ## Features
 
