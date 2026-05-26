@@ -611,14 +611,20 @@ function Step5Success({ state, draft, isWaitlist, onReset }) {
           <button className="secondary-btn" onClick={handleAddCalendar}>
             <Icon.Download size={16} /> Add to Calendar
           </button>
-          <button className="primary-btn" onClick={() => {
-            if (!isWaitlist) {
-              window.open("https://www.gctbm.nl/lessons-register.php", "_blank", "noopener");
-            }
-            onReset();
-          }}>
-            {isWaitlist ? "Done →" : "Go to Payment →"}
-          </button>
+          {isWaitlist ? (
+            <button className="primary-btn" onClick={onReset}>Done →</button>
+          ) : (
+            <a
+              className="primary-btn"
+              href="https://www.gctbm.nl/lessons-register.php"
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => { setTimeout(onReset, 100); }}
+              style={{textDecoration: "none", display: "block", textAlign: "center"}}
+            >
+              Go to Payment →
+            </a>
+          )}
         </div>
         <div className="success-footer">
           Confirmation sent to <b>{draft.email}</b>
