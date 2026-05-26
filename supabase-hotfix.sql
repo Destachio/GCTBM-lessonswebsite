@@ -6,7 +6,9 @@
 
 -- 1) Fix "column reference 'status' is ambiguous" in create_booking.
 --    The function's OUT column was named "status" which shadowed
---    bookings.status inside the query.
+--    bookings.status inside the query. Postgres requires DROP before
+--    we can rename OUT columns.
+drop function if exists public.create_booking(text,text,text,text,uuid[]);
 create or replace function public.create_booking(
   p_timeslot_id text,
   p_full_name   text,
