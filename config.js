@@ -1,14 +1,13 @@
 /* =========================================================
    Supabase configuration.
 
-   Paste the values from your Supabase project here:
-     Project Settings → API → "Project URL" + "anon public"
-
-   The anon key is safe to publish — security is enforced by
-   Row-Level Security and RPC permissions in supabase-schema.sql.
+   The anon/publishable key is safe to publish — security is
+   enforced by Row-Level Security and RPC permissions in
+   supabase-schema.sql, not by hiding this key.
    ========================================================= */
 
 window.GCTBM_CONFIG = {
-  SUPABASE_URL: "REPLACE_WITH_YOUR_PROJECT_URL",
-  SUPABASE_ANON_KEY: "REPLACE_WITH_YOUR_ANON_KEY",
+  SUPABASE_URL: "https://apwdspqqgnxyvpcicfdp.supabase.co",
+  SUPABASE_ANON_KEY: "sb_publishable_-afSdJI7imtYCJIHhEgQoA_cy61cIMZ",
+  ADMIN_HINT: "tehanschoem101@gmail.com",
 };

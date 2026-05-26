@@ -1030,6 +1030,16 @@ body::after {
 }
 .checkin-big-btn.done { background: var(--gray-200); color: var(--gray-500); box-shadow: none; cursor: default; }
 
+/* ===== Spinner ===== */
+.spinner {
+  display: inline-flex;
+  animation: spin 1s linear infinite;
+  color: var(--purple-600);
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 /* responsive */
 @media (max-width: 540px) {
   .glass-card { padding: 22px 18px; border-radius: var(--radius-lg); }

@@ -106,20 +106,19 @@ language sql security definer set search_path = public as $$
 $$;
 grant execute on function public.get_timeslot_availability(text) to anon, authenticated;
 
--- 3b) Duplicate-booking detection (returns minimal info needed for the warning modal)
+-- 3b) Duplicate-booking detection. Returns only IDs + timeslot info.
+--     Personal data is NEVER returned to anon callers (prevents probing).
+drop function if exists public.find_existing_bookings(text,text,text);
 create or replace function public.find_existing_bookings(
   p_email text, p_phone text, p_name text
 )
 returns table (
-  id           uuid,
-  timeslot_id  text,
-  status       text,
-  full_name    text,
-  email        text,
-  phone        text
+  id              uuid,
+  timeslot_id     text,
+  booking_status  text
 )
 language sql security definer set search_path = public as $$
-  select b.id, b.timeslot_id, b.status, b.full_name, b.email, b.phone
+  select b.id, b.timeslot_id, b.status
   from bookings b
   where b.status in ('booked','waitlist')
     and (
@@ -138,19 +137,20 @@ create or replace function public.create_booking(
   p_phone       text,
   p_replace_ids uuid[] default '{}'
 )
-returns table (booking_id uuid, status text)
+returns table (booking_id uuid, booking_status text)
 language plpgsql security definer set search_path = public as $$
 declare
   v_max int; v_booked int; v_status text; v_new_id uuid;
 begin
-  select max_trainees into v_max from timeslots where id = p_timeslot_id;
+  select t.max_trainees into v_max from timeslots t where t.id = p_timeslot_id;
   if v_max is null then raise exception 'Timeslot not found'; end if;
 
   if coalesce(array_length(p_replace_ids,1),0) > 0 then
     update bookings set status='cancelled' where id = any(p_replace_ids);
   end if;
 
-  select count(*) into v_booked from bookings where timeslot_id = p_timeslot_id and status = 'booked';
+  select count(*) into v_booked from bookings b
+    where b.timeslot_id = p_timeslot_id and b.status = 'booked';
   v_status := case when v_booked >= v_max then 'waitlist' else 'booked' end;
 
   insert into bookings (timeslot_id, full_name, email, phone, status)
@@ -162,17 +162,17 @@ end;
 $$;
 grant execute on function public.create_booking(text,text,text,text,uuid[]) to anon, authenticated;
 
--- 3d) Trainee fetches OWN bookings (check-in portal)
+-- 3d) Trainee fetches OWN bookings (check-in portal). Does not echo PII.
+drop function if exists public.get_my_bookings(text);
 create or replace function public.get_my_bookings(p_email text)
 returns table (
-  id           uuid,
-  timeslot_id  text,
-  full_name    text,
-  status       text,
-  attendance   jsonb
+  id              uuid,
+  timeslot_id     text,
+  booking_status  text,
+  attendance      jsonb
 )
 language sql security definer set search_path = public as $$
-  select b.id, b.timeslot_id, b.full_name, b.status, b.attendance
+  select b.id, b.timeslot_id, b.status, b.attendance
   from bookings b
   where lower(trim(b.email)) = lower(trim(p_email))
     and b.status in ('booked','waitlist');
