@@ -1,10 +1,10 @@
-# SwingMaster — Golf Lesson Booking
+# GCTBM Lessons — Golf Lesson Booking
 
 A single-page web app for booking golf lessons at GCTBM. Built for a non-technical owner: just open `index.html` in any modern browser and it works — no build step, no server, no database.
 
 ## Features
 
-- **5-step booking flow** matching the SwingMaster design (Level → Location → Timeslot → Confirm & Pay → Success)
+- **5-step booking flow** (Level → Location → Timeslot → Confirm & Pay → Success)
 - **3 levels** (Beginner / Intermediate / Advanced)
 - **2 locations** with dedicated coaches (Tongelreep / Gendersteyn)
 - **Configurable timeslots** per location, day, time, and level
@@ -65,7 +65,7 @@ GCTBM-lessonswebsite/
 Open your browser's DevTools console and run:
 
 ```js
-localStorage.removeItem("swingmaster.state.v1"); location.reload();
+localStorage.removeItem("gctbm-lessons.state.v1"); location.reload();
 ```
 
 This resets seasons, locations, timeslots, and bookings to the defaults shown in the screenshots.

@@ -1,5 +1,5 @@
 /* =========================================================
-   SwingMaster — Golf Lesson Booking Application
+   GCTBM Lessons — Golf Lesson Booking Application
    Single-file React app (loaded via Babel standalone).
    State persisted to localStorage.
    ========================================================= */
@@ -190,10 +190,10 @@ function buildICS({ summary, location, description, dates, time }) {
     const pad = (n) => String(n).padStart(2, "0");
     return d.getFullYear() + pad(d.getMonth()+1) + pad(d.getDate()) + "T" + pad(d.getHours()) + pad(d.getMinutes()) + "00";
   };
-  let ics = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//SwingMaster//Golf//EN\r\n";
+  let ics = "BEGIN:VCALENDAR\r\nVERSION:2.0\r\nPRODID:-//GCTBM Lessons//Golf//EN\r\n";
   for (const date of dates) {
     ics += "BEGIN:VEVENT\r\n";
-    ics += `UID:${date}-${Math.random().toString(36).slice(2,8)}@swingmaster\r\n`;
+    ics += `UID:${date}-${Math.random().toString(36).slice(2,8)}@gctbm-lessons\r\n`;
     ics += `DTSTAMP:${fmt(date, "00:00")}\r\n`;
     ics += `DTSTART:${fmt(date, start)}\r\n`;
     ics += `DTEND:${fmt(date, end)}\r\n`;
@@ -273,7 +273,7 @@ function Header({ seasonName, view, onNav, onSeasonChange, seasons }) {
     <div className="header">
       <button className="brand" onClick={() => onNav("booking", { step: 1 })} style={{background: "none", border: "none", padding: 0, cursor: "pointer"}}>
         <div className="brand-icon"><Icon.Pin size={22} /></div>
-        <h1 className="brand-name">SwingMaster</h1>
+        <h1 className="brand-name">GCTBM Lessons</h1>
       </button>
       <div className="header-actions">
         <button className="season-badge" onClick={() => setOpen(!open)} style={{cursor: "pointer", border: "1px solid rgba(196, 181, 253, 0.6)"}}>
@@ -595,7 +595,7 @@ function Step5Success({ state, draft, isWaitlist, onReset }) {
       dates: ts.lessonDates,
       time: ts.time,
     });
-    downloadICS(`swingmaster-${ts.id}.ics`, ics);
+    downloadICS(`gctbm-lessons-${ts.id}.ics`, ics);
   };
   return (
     <div className="glass-card">
