@@ -612,8 +612,9 @@ function Step5Success({ state, draft, isWaitlist, onReset }) {
             <Icon.Download size={16} /> Add to Calendar
           </button>
           <button className="primary-btn" onClick={() => {
-            // Mock redirect — in production this would go to the golf club's payment URL
-            alert("Redirecting to the golf club payment portal...");
+            if (!isWaitlist) {
+              window.open("https://www.gctbm.nl/lessons-register.php", "_blank", "noopener");
+            }
             onReset();
           }}>
             {isWaitlist ? "Done →" : "Go to Payment →"}
