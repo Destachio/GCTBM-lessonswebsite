@@ -29,11 +29,13 @@ const toUiTimeslot = (r) => ({
   day: r.day_of_week, time: r.time_block, level: r.level,
   maxTrainees: r.max_trainees,
   lessonDates: Array.isArray(r.lesson_dates) ? r.lesson_dates.map(d => typeof d === "string" ? d.slice(0,10) : d) : [],
+  cancelledDates: Array.isArray(r.cancelled_dates) ? r.cancelled_dates.map(d => typeof d === "string" ? d.slice(0,10) : d) : [],
 });
 const toDbTimeslot = (t) => ({
   id: t.id, season_id: t.season, location_id: t.location,
   day_of_week: t.day, time_block: t.time, level: t.level,
   max_trainees: t.maxTrainees, lesson_dates: t.lessonDates,
+  cancelled_dates: t.cancelledDates || [],
 });
 const toUiBooking = (r) => ({
   id: r.id, timeslotId: r.timeslot_id, name: r.full_name,
@@ -166,6 +168,46 @@ const db = {
   },
   async promoteBooking(id) {
     const { error } = await SB.from("bookings").update({ status: "booked" }).eq("id", id);
+    if (error) throw error;
+  },
+
+  /* ---- Role + trainer features ---- */
+  async getCurrentUserRole() {
+    const { data, error } = await SB.rpc("current_user_role");
+    if (error) throw error;
+    return data || "anon";
+  },
+  async getCurrentTrainerLocation() {
+    const { data, error } = await SB.rpc("current_trainer_location");
+    if (error) throw error;
+    return data || null;
+  },
+  async listTrainerProfiles() {
+    const { data, error } = await SB.from("trainer_profiles").select("*");
+    if (error) throw error;
+    return data || [];
+  },
+  async addTrainerProfile({ userId, locationId, displayName }) {
+    const { error } = await SB.from("trainer_profiles").insert({
+      user_id: userId, location_id: locationId, display_name: displayName || null,
+    });
+    if (error) throw error;
+  },
+  async removeTrainerProfile(userId) {
+    const { error } = await SB.from("trainer_profiles").delete().eq("user_id", userId);
+    if (error) throw error;
+  },
+  async findUserIdByEmail(email) {
+    const { data, error } = await SB.rpc("admin_find_user_by_email", { p_email: email });
+    if (error) throw error;
+    return data || null;
+  },
+  async trainerUpdateLessons(timeslotId, lessonDates, cancelledDates) {
+    const { error } = await SB.rpc("trainer_update_lessons", {
+      p_timeslot_id: timeslotId,
+      p_lesson_dates: lessonDates,
+      p_cancelled_dates: cancelledDates,
+    });
     if (error) throw error;
   },
 };
@@ -897,16 +939,37 @@ function CalendarView({ state }) {
   );
 }
 
-/* ============================== ADMIN ============================== */
+/* ============================== STAFF (ADMIN or TRAINER) ============================== */
 function AdminPanel({ state, refresh, session, setSession }) {
-  if (!session) {
-    return <AdminLogin onSignedIn={setSession} />;
+  const [role, setRole] = useState(null);
+  const [trainerLoc, setTrainerLoc] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!session) { setRole(null); setTrainerLoc(null); return; }
+    setBusy(true);
+    Promise.all([db.getCurrentUserRole(), db.getCurrentTrainerLocation()])
+      .then(([r, loc]) => { setRole(r); setTrainerLoc(loc); })
+      .catch((e) => { console.error(e); setRole("admin"); })
+      .finally(() => setBusy(false));
+  }, [session]);
+
+  if (!session) return <AdminLogin onSignedIn={setSession} />;
+  if (busy || !role) return (
+    <div className="glass-card" style={{textAlign: "center", padding: 60}}>
+      <div className="spinner"><Icon.Loader size={28} /></div>
+      <p className="muted" style={{marginTop: 12}}>Checking role…</p>
+    </div>
+  );
+
+  if (role === "trainer") {
+    return <TrainerConsole state={state} refresh={refresh} session={session} locationId={trainerLoc} />;
   }
   return <AdminConsole state={state} refresh={refresh} session={session} />;
 }
 
 function AdminLogin({ onSignedIn }) {
-  const [email, setEmail] = useState(CONFIG.ADMIN_HINT || "");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
@@ -921,10 +984,10 @@ function AdminLogin({ onSignedIn }) {
   };
   return (
     <div className="glass-card">
-      <h2 className="title">Admin Sign-In</h2>
-      <p className="subtitle">Sign in with your admin account to manage timeslots and trainees.</p>
+      <h2 className="title">Staff Sign-In</h2>
+      <p className="subtitle">Sign in to access your admin or trainer dashboard.</p>
       <form onSubmit={handleSubmit}>
-        <input className="form-input" type="email" placeholder="Admin email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
+        <input className="form-input" type="email" placeholder="Email address" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" />
         <input className="form-input" type="password" placeholder="Password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
         {err && <p style={{color: "var(--red-500)", fontSize: "0.85rem", marginBottom: 12}}>{err}</p>}
         <button className="primary-btn" type="submit" disabled={busy || !email.trim() || !password}>
@@ -948,11 +1011,362 @@ function AdminConsole({ state, refresh, session }) {
         <button className={`admin-tab ${tab === "trainees" ? "active" : ""}`} onClick={() => setTab("trainees")}>Trainees</button>
         <button className={`admin-tab ${tab === "seasons" ? "active" : ""}`} onClick={() => setTab("seasons")}>Seasons</button>
         <button className={`admin-tab ${tab === "locations" ? "active" : ""}`} onClick={() => setTab("locations")}>Locations</button>
+        <button className={`admin-tab ${tab === "trainers" ? "active" : ""}`} onClick={() => setTab("trainers")}>Trainers</button>
       </div>
       {tab === "timeslots" && <AdminTimeslots state={state} refresh={refresh} />}
       {tab === "trainees" && <AdminTrainees state={state} refresh={refresh} />}
       {tab === "seasons" && <AdminSeasons state={state} refresh={refresh} />}
       {tab === "locations" && <AdminLocations state={state} refresh={refresh} />}
+      {tab === "trainers" && <AdminTrainersAssignments state={state} />}
+    </div>
+  );
+}
+
+function AdminTrainersAssignments({ state }) {
+  const [profiles, setProfiles] = useState(null);
+  const [emailLookup, setEmailLookup] = useState({});  // userId -> email
+  const [adding, setAdding] = useState(false);
+  const [newEmail, setNewEmail] = useState("");
+  const [newLocation, setNewLocation] = useState(Object.keys(state.locations)[0] || "");
+  const [newDisplayName, setNewDisplayName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+
+  const load = async () => {
+    try {
+      const ps = await db.listTrainerProfiles();
+      setProfiles(ps);
+    } catch (e) { setErr(e.message); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const handleAdd = async (e) => {
+    e.preventDefault();
+    setBusy(true); setErr(null);
+    try {
+      const uid = await db.findUserIdByEmail(newEmail.trim());
+      if (!uid) {
+        setErr(`No Supabase user found with email "${newEmail}". Create the user first in Supabase → Authentication → Users.`);
+        setBusy(false);
+        return;
+      }
+      await db.addTrainerProfile({ userId: uid, locationId: newLocation, displayName: newDisplayName.trim() || null });
+      setEmailLookup((m) => ({ ...m, [uid]: newEmail.trim() }));
+      setAdding(false);
+      setNewEmail(""); setNewDisplayName("");
+      await load();
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  const handleRemove = async (userId) => {
+    if (!confirm("Remove trainer assignment? Their auth user stays — only their location access is revoked.")) return;
+    try { await db.removeTrainerProfile(userId); await load(); } catch (e) { alert(e.message); }
+  };
+
+  return (
+    <div>
+      <div className="admin-section-head">
+        <div>
+          <h3 className="admin-section-title">Trainer Assignments</h3>
+          <p className="muted" style={{margin: 0, fontSize: "0.85rem"}}>
+            Each trainer needs a Supabase Auth user. After creating it in <b>Supabase → Authentication → Users</b>, assign their email to a location here.
+          </p>
+        </div>
+        <button className="add-btn" onClick={() => setAdding(true)}><Icon.Plus /> Assign trainer</button>
+      </div>
+
+      {!profiles && <p className="muted center">Loading…</p>}
+      {profiles && profiles.length === 0 && (
+        <p className="muted center" style={{padding: "16px 0"}}>No trainers assigned yet.</p>
+      )}
+      {profiles && profiles.length > 0 && (
+        <table className="admin-table">
+          <thead><tr><th>Display name</th><th>Location</th><th>User ID</th><th></th></tr></thead>
+          <tbody>
+            {profiles.map((p) => (
+              <tr key={p.user_id}>
+                <td><b>{p.display_name || <span className="muted">(not set)</span>}</b></td>
+                <td>{state.locations[p.location_id]?.name || p.location_id}</td>
+                <td><code style={{fontSize: "0.75rem", color: "var(--gray-500)"}}>{p.user_id.slice(0, 8)}…</code></td>
+                <td>
+                  <button className="row-action danger" onClick={() => handleRemove(p.user_id)}><Icon.Trash /></button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {adding && (
+        <div className="modal-overlay" onClick={() => setAdding(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Assign Trainer</h3>
+            <p className="muted" style={{fontSize: "0.88rem", marginTop: 0}}>
+              The trainer must already exist as a Supabase Auth user.
+            </p>
+            <form onSubmit={handleAdd}>
+              <label className="field-label">Trainer email</label>
+              <input className="form-input" type="email" placeholder="trainer@example.com" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} autoFocus />
+              <label className="field-label">Location</label>
+              <select className="form-select" value={newLocation} onChange={(e) => setNewLocation(e.target.value)}>
+                {Object.values(state.locations).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
+              </select>
+              <label className="field-label">Display name (optional)</label>
+              <input className="form-input" placeholder="Coach Marco" value={newDisplayName} onChange={(e) => setNewDisplayName(e.target.value)} />
+              {err && <p style={{color: "var(--red-500)", fontSize: "0.85rem"}}>{err}</p>}
+              <div className="modal-actions">
+                <button type="button" className="secondary-btn" onClick={() => setAdding(false)}>Cancel</button>
+                <button type="submit" className="primary-btn" disabled={busy || !newEmail.trim() || !newLocation}>
+                  {busy ? "Assigning…" : "Assign"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ============================== TRAINER CONSOLE ============================== */
+function TrainerConsole({ state, refresh, session, locationId }) {
+  const location = state.locations[locationId];
+  const [tab, setTab] = useState("schedule");
+  const slots = state.timeslots
+    .filter((t) => t.season === state.currentSeason && t.location === locationId)
+    .sort((a, b) => a.day - b.day || a.time.localeCompare(b.time));
+
+  if (!location) {
+    return (
+      <div className="glass-card">
+        <h2 className="title">Trainer Dashboard</h2>
+        <p className="muted center">Your trainer profile isn't linked to a location. Please ask your admin to assign you.</p>
+        <button className="secondary-btn" onClick={async () => { await db.signOut(); }} style={{marginTop: 16}}>Sign out</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="glass-card">
+      <h2 className="title">Trainer Dashboard</h2>
+      <p className="subtitle">
+        <b>{location.name}</b> • Signed in as <b>{session.user.email}</b>{" • "}
+        <button className="text-btn" onClick={async () => { await db.signOut(); }}>Sign out</button>
+      </p>
+
+      <div className="admin-tabs">
+        <button className={`admin-tab ${tab === "schedule" ? "active" : ""}`} onClick={() => setTab("schedule")}>Lesson Schedule</button>
+        <button className={`admin-tab ${tab === "roster" ? "active" : ""}`} onClick={() => setTab("roster")}>Trainee Roster</button>
+      </div>
+
+      {tab === "schedule" && (
+        <TrainerSchedule slots={slots} state={state} location={location} refresh={refresh} />
+      )}
+      {tab === "roster" && (
+        <TrainerRoster slots={slots} state={state} />
+      )}
+    </div>
+  );
+}
+
+function TrainerSchedule({ slots, state, location, refresh }) {
+  const [selectedId, setSelectedId] = useState(slots[0]?.id || null);
+  const ts = slots.find((t) => t.id === selectedId);
+
+  return (
+    <div>
+      <label className="field-label">Choose a timeslot</label>
+      <select className="form-select" value={selectedId || ""} onChange={(e) => setSelectedId(e.target.value)}>
+        {slots.length === 0 && <option value="">No timeslots at this location</option>}
+        {slots.map((t) => (
+          <option key={t.id} value={t.id}>
+            {DAY_NAMES[t.day]} • {t.time} • {cap(t.level)}
+          </option>
+        ))}
+      </select>
+
+      <div className="divider-thin" />
+
+      {ts && <TrainerLessonsEditor timeslot={ts} location={location} refresh={refresh} />}
+      {!ts && <p className="muted center">No timeslots scheduled for {location.name} in this season.</p>}
+    </div>
+  );
+}
+
+function TrainerLessonsEditor({ timeslot, location, refresh }) {
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const [reschedule, setReschedule] = useState(null); // { date, newDate }
+
+  const apply = async (newLessonDates, newCancelledDates) => {
+    setBusy(true); setErr(null);
+    try {
+      await db.trainerUpdateLessons(timeslot.id, newLessonDates, newCancelledDates);
+      await refresh();
+    } catch (e) { setErr(e.message); }
+    setBusy(false);
+  };
+
+  const cancelLesson = async (date) => {
+    if (!confirm(`Cancel the lesson on ${formatShortDate(date)}? Trainees will see it removed from their schedule.`)) return;
+    const newLessonDates = timeslot.lessonDates.filter((d) => d !== date);
+    const newCancelledDates = [...(timeslot.cancelledDates || []), date];
+    await apply(newLessonDates, newCancelledDates);
+  };
+
+  const restoreCancelled = async (date) => {
+    const newLessonDates = [...timeslot.lessonDates, date].sort();
+    const newCancelledDates = (timeslot.cancelledDates || []).filter((d) => d !== date);
+    await apply(newLessonDates, newCancelledDates);
+  };
+
+  const applyReschedule = async () => {
+    if (!reschedule || !reschedule.newDate) return;
+    const newLessonDates = timeslot.lessonDates
+      .map((d) => (d === reschedule.date ? reschedule.newDate : d))
+      .sort();
+    await apply(newLessonDates, timeslot.cancelledDates || []);
+    setReschedule(null);
+  };
+
+  const today = todayISO();
+
+  return (
+    <div>
+      <div className="checkin-card" style={{textAlign: "left"}}>
+        <h3 style={{margin: 0}}>{cap(timeslot.level)} Golf — {DAY_PLURAL[timeslot.day]} {timeslot.time}</h3>
+        <p className="muted" style={{margin: "4px 0 0", fontSize: "0.88rem"}}>
+          {location.name} • {location.coach} • {timeslot.lessonDates.length} active lesson{timeslot.lessonDates.length === 1 ? "" : "s"}
+          {(timeslot.cancelledDates || []).length > 0 && ` • ${timeslot.cancelledDates.length} cancelled`}
+        </p>
+      </div>
+
+      {err && <p style={{color: "var(--red-500)", fontSize: "0.85rem"}}>{err}</p>}
+
+      <h4 style={{margin: "18px 0 8px"}}>Active lessons</h4>
+      <div className="lesson-list">
+        {timeslot.lessonDates.length === 0 && (
+          <p className="muted center" style={{padding: 12}}>No active lessons.</p>
+        )}
+        {timeslot.lessonDates.map((d, i) => {
+          const past = d < today;
+          return (
+            <div key={d} className="lesson-row">
+              <div className="lesson-info">
+                <span className="lesson-week">Lesson {i + 1}{past ? " (past)" : ""}</span>
+                <span className="lesson-date">{formatShortDate(d)}</span>
+              </div>
+              <div style={{display: "flex", gap: 6}}>
+                <button className="row-action" disabled={busy || past} onClick={() => setReschedule({ date: d, newDate: d })}>Reschedule</button>
+                <button className="row-action danger" disabled={busy || past} onClick={() => cancelLesson(d)}>Cancel</button>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {(timeslot.cancelledDates || []).length > 0 && (
+        <>
+          <h4 style={{margin: "18px 0 8px"}}>Cancelled lessons</h4>
+          <div className="lesson-list">
+            {timeslot.cancelledDates.map((d) => (
+              <div key={d} className="lesson-row" style={{opacity: 0.7}}>
+                <div className="lesson-info">
+                  <span className="lesson-week" style={{textDecoration: "line-through"}}>{formatShortDate(d)}</span>
+                  <span className="lesson-date">Cancelled</span>
+                </div>
+                <button className="row-action" disabled={busy} onClick={() => restoreCancelled(d)}>Restore</button>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {reschedule && (
+        <div className="modal-overlay" onClick={() => setReschedule(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Reschedule lesson</h3>
+            <p className="muted" style={{fontSize: "0.88rem", marginTop: 0}}>
+              Original date: <b>{formatShortDate(reschedule.date)}</b>
+            </p>
+            <label className="field-label">New date</label>
+            <input
+              type="date"
+              className="form-input"
+              value={reschedule.newDate}
+              min={today}
+              onChange={(e) => setReschedule({ ...reschedule, newDate: e.target.value })}
+            />
+            <div className="modal-actions">
+              <button className="secondary-btn" onClick={() => setReschedule(null)}>Cancel</button>
+              <button className="primary-btn" disabled={busy || !reschedule.newDate || reschedule.newDate === reschedule.date} onClick={applyReschedule}>
+                {busy ? "Saving…" : "Reschedule"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TrainerRoster({ slots, state }) {
+  const [selectedId, setSelectedId] = useState(slots[0]?.id || null);
+  const [bookings, setBookings] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!selectedId) { setBookings([]); return; }
+    setLoading(true);
+    db.listAllBookings()
+      .then((all) => setBookings(all.filter((b) => b.timeslotId === selectedId)))
+      .catch((e) => { console.error(e); setBookings([]); })
+      .finally(() => setLoading(false));
+  }, [selectedId]);
+
+  const ts = slots.find((t) => t.id === selectedId);
+
+  return (
+    <div>
+      <label className="field-label">Choose a timeslot</label>
+      <select className="form-select" value={selectedId || ""} onChange={(e) => setSelectedId(e.target.value)}>
+        {slots.length === 0 && <option value="">No timeslots at this location</option>}
+        {slots.map((t) => (
+          <option key={t.id} value={t.id}>
+            {DAY_NAMES[t.day]} • {t.time} • {cap(t.level)}
+          </option>
+        ))}
+      </select>
+
+      <div className="divider-thin" />
+
+      {!ts && <p className="muted center">No timeslot selected.</p>}
+      {ts && loading && <p className="muted center">Loading roster…</p>}
+      {ts && !loading && (
+        <>
+          <div className="attendance-summary">
+            <div className="summary-stat"><div className="num">{(bookings || []).filter(b => b.status === "booked").length}/{ts.maxTrainees}</div><div className="lbl">Booked</div></div>
+            <div className="summary-stat"><div className="num">{(bookings || []).filter(b => b.status === "waitlist").length}</div><div className="lbl">Waitlist</div></div>
+            <div className="summary-stat"><div className="num">{ts.lessonDates.length}</div><div className="lbl">Lessons</div></div>
+          </div>
+
+          {bookings && bookings.length === 0 && <p className="muted center" style={{padding: 16}}>No bookings yet.</p>}
+          {bookings && bookings.map((b) => {
+            const attended = Object.values(b.attendance || {}).filter(Boolean).length;
+            return (
+              <div key={b.id} className="trainee-row">
+                <div className="info">
+                  <span className="trainee-name">{b.name}</span>
+                  <span className="trainee-contact">{b.email} • {b.phone}</span>
+                  <span className="trainee-contact">Attended {attended}/{ts.lessonDates.length} lessons</span>
+                </div>
+                <span className={`trainee-status ${b.status}`}>{b.status}</span>
+              </div>
+            );
+          })}
+        </>
+      )}
     </div>
   );
 }

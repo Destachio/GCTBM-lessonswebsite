@@ -26,16 +26,28 @@ create table if not exists public.locations (
 );
 
 create table if not exists public.timeslots (
-  id            text primary key,
-  season_id     text not null references public.seasons(id)   on delete cascade,
-  location_id   text not null references public.locations(id) on delete cascade,
-  day_of_week   int  not null check (day_of_week between 0 and 6),
-  time_block    text not null,
-  level         text not null check (level in ('beginner','intermediate','advanced')),
-  max_trainees  int  not null default 7 check (max_trainees > 0),
-  lesson_dates  date[] not null default '{}',
-  created_at    timestamptz not null default now()
+  id              text primary key,
+  season_id       text not null references public.seasons(id)   on delete cascade,
+  location_id     text not null references public.locations(id) on delete cascade,
+  day_of_week     int  not null check (day_of_week between 0 and 6),
+  time_block      text not null,
+  level           text not null check (level in ('beginner','intermediate','advanced')),
+  max_trainees    int  not null default 7 check (max_trainees > 0),
+  lesson_dates    date[] not null default '{}',
+  cancelled_dates date[] not null default '{}',
+  created_at      timestamptz not null default now()
 );
+alter table public.timeslots add column if not exists cancelled_dates date[] not null default '{}';
+
+-- Trainer profiles: maps an auth.users row to a location. Admins have no row here.
+create table if not exists public.trainer_profiles (
+  user_id      uuid primary key references auth.users(id) on delete cascade,
+  location_id  text not null references public.locations(id) on delete cascade,
+  display_name text,
+  created_at   timestamptz not null default now()
+);
+create index if not exists trainer_profiles_location_idx on public.trainer_profiles(location_id);
+alter table public.trainer_profiles enable row level security;
 create index if not exists timeslots_season_idx   on public.timeslots(season_id);
 create index if not exists timeslots_location_idx on public.timeslots(location_id);
 
@@ -69,19 +81,49 @@ begin
   end loop;
 end $$;
 
+-- Role helper functions used by RLS below.
+create or replace function public.current_user_role()
+returns text language sql security definer set search_path = public as $$
+  select case
+    when auth.uid() is null then 'anon'
+    when exists (select 1 from public.trainer_profiles tp where tp.user_id = auth.uid()) then 'trainer'
+    else 'admin'
+  end;
+$$;
+grant execute on function public.current_user_role() to anon, authenticated;
+
+create or replace function public.current_trainer_location()
+returns text language sql security definer set search_path = public as $$
+  select location_id from public.trainer_profiles where user_id = auth.uid();
+$$;
+grant execute on function public.current_trainer_location() to authenticated;
+
 -- Public can READ reference data (needed for the booking flow UI)
 create policy "anon reads seasons"   on public.seasons   for select using (true);
 create policy "anon reads locations" on public.locations for select using (true);
 create policy "anon reads timeslots" on public.timeslots for select using (true);
 
--- Bookings personal data: NEVER directly readable. Anon never reads, never writes directly.
--- All anon access goes through RPCs below.
--- Authenticated users (admin) have full access:
-create policy "admin reads bookings"   on public.bookings  for select using (auth.role() = 'authenticated');
-create policy "admin writes bookings"  on public.bookings  for all    using (auth.role() = 'authenticated');
-create policy "admin manages seasons"  on public.seasons   for all    using (auth.role() = 'authenticated');
-create policy "admin manages locations" on public.locations for all   using (auth.role() = 'authenticated');
-create policy "admin manages timeslots" on public.timeslots for all   using (auth.role() = 'authenticated');
+-- ADMIN: full access to everything (admin = authenticated user with no trainer profile)
+create policy "admins all seasons"          on public.seasons          for all to authenticated using (current_user_role() = 'admin') with check (current_user_role() = 'admin');
+create policy "admins all locations"        on public.locations        for all to authenticated using (current_user_role() = 'admin') with check (current_user_role() = 'admin');
+create policy "admins all timeslots"        on public.timeslots        for all to authenticated using (current_user_role() = 'admin') with check (current_user_role() = 'admin');
+create policy "admins all bookings"         on public.bookings         for all to authenticated using (current_user_role() = 'admin') with check (current_user_role() = 'admin');
+create policy "admins all trainer_profiles" on public.trainer_profiles for all to authenticated using (current_user_role() = 'admin') with check (current_user_role() = 'admin');
+
+-- TRAINER: read all timeslots, update only their own; read bookings only for their location.
+create policy "trainers read all timeslots" on public.timeslots
+  for select to authenticated using (current_user_role() = 'trainer');
+create policy "trainers update own timeslots" on public.timeslots
+  for update to authenticated
+  using  (current_user_role() = 'trainer' and location_id = current_trainer_location())
+  with check (current_user_role() = 'trainer' and location_id = current_trainer_location());
+create policy "trainers read own bookings" on public.bookings
+  for select to authenticated using (
+    current_user_role() = 'trainer'
+    and exists (select 1 from public.timeslots t where t.id = bookings.timeslot_id and t.location_id = current_trainer_location())
+  );
+create policy "trainers read own profile" on public.trainer_profiles
+  for select to authenticated using (user_id = auth.uid());
 
 -- -------------------------------------------------------------
 -- 3. PUBLIC RPCs (security definer — they bypass RLS but only expose what's safe)
@@ -199,6 +241,44 @@ begin
 end;
 $$;
 grant execute on function public.toggle_attendance(text,uuid,date) to anon, authenticated;
+
+-- 3f) Trainer-scoped lesson update (cancel / reschedule).
+create or replace function public.trainer_update_lessons(
+  p_timeslot_id     text,
+  p_lesson_dates    date[],
+  p_cancelled_dates date[]
+)
+returns void
+language plpgsql security definer set search_path = public as $$
+declare v_role text; v_my_loc text; v_ts_loc text;
+begin
+  v_role := current_user_role();
+  if v_role = 'anon' then raise exception 'Not authenticated'; end if;
+  select t.location_id into v_ts_loc from timeslots t where t.id = p_timeslot_id;
+  if v_ts_loc is null then raise exception 'Timeslot not found'; end if;
+  if v_role = 'admin' then
+    update timeslots set lesson_dates = p_lesson_dates, cancelled_dates = p_cancelled_dates where id = p_timeslot_id;
+    return;
+  end if;
+  v_my_loc := current_trainer_location();
+  if v_my_loc is null or v_my_loc <> v_ts_loc then raise exception 'Not authorised for this location'; end if;
+  update timeslots set lesson_dates = p_lesson_dates, cancelled_dates = p_cancelled_dates where id = p_timeslot_id;
+end;
+$$;
+grant execute on function public.trainer_update_lessons(text, date[], date[]) to authenticated;
+
+-- 3g) Admin: find a user's UUID by email (for assigning trainer profiles).
+create or replace function public.admin_find_user_by_email(p_email text)
+returns uuid
+language plpgsql security definer set search_path = public, auth as $$
+declare v_uid uuid;
+begin
+  if current_user_role() <> 'admin' then raise exception 'Only admin can search users'; end if;
+  select id into v_uid from auth.users where lower(email) = lower(trim(p_email));
+  return v_uid;
+end;
+$$;
+grant execute on function public.admin_find_user_by_email(text) to authenticated;
 
 -- -------------------------------------------------------------
 -- 4. SEED DATA (matches the original demo)
