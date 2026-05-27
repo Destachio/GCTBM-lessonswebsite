@@ -214,7 +214,46 @@ const db = {
 
 /* ---------------------------- Icons (inline SVG) --------------------------- */
 const Icon = {
-  Pin: (p) => (<svg width={p.size||20} height={p.size||20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/></svg>),
+  // Pin → golf flag in cup (used for brand + locations)
+  Pin: (p) => (
+    <svg width={p.size||20} height={p.size||20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="7" y1="3" x2="7" y2="20"/>
+      <path d="M7 3 L18 6.5 L7 10 Z" fill="currentColor" stroke="none"/>
+      <ellipse cx="12" cy="20" rx="7" ry="1.5"/>
+    </svg>
+  ),
+  // Golf ball — used for Beginner level
+  Ball: (p) => (
+    <svg width={p.size||20} height={p.size||20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <circle cx="12" cy="12" r="9"/>
+      <circle cx="9.5"  cy="9.5"  r="0.7" fill="currentColor" stroke="none"/>
+      <circle cx="13"   cy="10"   r="0.7" fill="currentColor" stroke="none"/>
+      <circle cx="10.5" cy="13"   r="0.7" fill="currentColor" stroke="none"/>
+      <circle cx="14"   cy="14"   r="0.7" fill="currentColor" stroke="none"/>
+      <circle cx="11"   cy="16"   r="0.7" fill="currentColor" stroke="none"/>
+      <circle cx="8.5"  cy="14.5" r="0.7" fill="currentColor" stroke="none"/>
+    </svg>
+  ),
+  // Crossed golf clubs — used for Intermediate level
+  Club: (p) => (
+    <svg width={p.size||20} height={p.size||20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <line x1="6"  y1="4"  x2="16" y2="18"/>
+      <line x1="18" y1="4"  x2="8"  y2="18"/>
+      <path d="M14.5 18 L20 19.5 L18.5 22 L13 20.5 Z" fill="currentColor" stroke="none"/>
+      <path d="M9.5 18 L4 19.5 L5.5 22 L11 20.5 Z" fill="currentColor" stroke="none"/>
+    </svg>
+  ),
+  // Trophy — used for Advanced level
+  Trophy: (p) => (
+    <svg width={p.size||20} height={p.size||20} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M8 21h8"/>
+      <path d="M12 17v4"/>
+      <path d="M7 4h10v6a5 5 0 0 1-10 0V4z" fill="currentColor" stroke="currentColor" fillOpacity="0.15"/>
+      <path d="M17 5h2a2 2 0 0 1 0 4h-2"/>
+      <path d="M7 5H5a2 2 0 0 0 0 4h2"/>
+    </svg>
+  ),
+  // Generic person silhouette (used for check-in icon, trainee form)
   User: (p) => (<svg width={p.size||18} height={p.size||18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>),
   Users: (p) => (<svg width={p.size||18} height={p.size||18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>),
   Check: (p) => (<svg width={p.size||18} height={p.size||18} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>),
@@ -234,9 +273,9 @@ const Icon = {
 
 /* ----------------------------- Constants ------------------------------ */
 const LEVELS = [
-  { id: "beginner", name: "Beginner", desc: "For those completely new to the sport. Handicap 54 preparation.", icon: "User" },
-  { id: "intermediate", name: "Intermediate", desc: "Improving swing mechanics and course management. Handicap 36-54.", icon: "Users" },
-  { id: "advanced", name: "Advanced", desc: "Competitive play strategies and fine-tuning. Handicap < 36.", icon: "Check" },
+  { id: "beginner",     name: "Beginner",     desc: "For those completely new to the sport. Handicap 54 preparation.",      icon: "Ball"   },
+  { id: "intermediate", name: "Intermediate", desc: "Improving swing mechanics and course management. Handicap 36-54.",     icon: "Club"   },
+  { id: "advanced",     name: "Advanced",     desc: "Competitive play strategies and fine-tuning. Handicap < 36.",          icon: "Trophy" },
 ];
 const DOW = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];

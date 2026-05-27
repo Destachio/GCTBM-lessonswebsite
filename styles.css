@@ -3,16 +3,18 @@
    ============================================ */
 
 :root {
-  --purple-50: #F5F3FF;
-  --purple-100: #EDE9FE;
-  --purple-200: #DDD6FE;
-  --purple-300: #C4B5FD;
-  --purple-400: #A78BFA;
-  --purple-500: #8B5CF6;
-  --purple-600: #7C3AED;
-  --purple-700: #6D28D9;
-  --indigo-500: #6366F1;
-  --indigo-600: #4F46E5;
+  /* Blue/sky palette — keep --purple-* variable names so the rest of the
+     stylesheet doesn't need to change; only the values are blue now. */
+  --purple-50:  #EFF6FF;
+  --purple-100: #DBEAFE;
+  --purple-200: #BFDBFE;
+  --purple-300: #93C5FD;
+  --purple-400: #60A5FA;
+  --purple-500: #3B82F6;
+  --purple-600: #2563EB;
+  --purple-700: #1D4ED8;
+  --indigo-500: #0EA5E9;  /* sky-500 accent */
+  --indigo-600: #0284C7;
   --gray-50: #F9FAFB;
   --gray-100: #F3F4F6;
   --gray-200: #E5E7EB;
@@ -27,10 +29,10 @@
   --green-600: #059669;
   --red-500: #EF4444;
   --amber-500: #F59E0B;
-  --bg-grad: linear-gradient(180deg, #EEF0FF 0%, #F5F0FF 60%, #FAF5FF 100%);
+  --bg-grad: linear-gradient(180deg, #ECFEFF 0%, #EFF6FF 60%, #F0F9FF 100%);
   --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
-  --shadow-md: 0 4px 16px rgba(91, 33, 182, 0.08);
-  --shadow-lg: 0 12px 40px rgba(91, 33, 182, 0.12);
+  --shadow-md: 0 4px 16px rgba(29, 78, 216, 0.08);
+  --shadow-lg: 0 12px 40px rgba(29, 78, 216, 0.12);
   --radius: 14px;
   --radius-lg: 20px;
   --radius-xl: 26px;
@@ -64,12 +66,12 @@ body::before, body::after {
   pointer-events: none;
 }
 body::before {
-  background: radial-gradient(circle, #C4B5FD 0%, transparent 70%);
+  background: radial-gradient(circle, #93C5FD 0%, transparent 70%);
   top: -200px;
   left: -200px;
 }
 body::after {
-  background: radial-gradient(circle, #A5B4FC 0%, transparent 70%);
+  background: radial-gradient(circle, #7DD3FC 0%, transparent 70%);
   bottom: -200px;
   right: -200px;
 }
@@ -98,12 +100,12 @@ body::after {
   width: 42px;
   height: 42px;
   border-radius: 12px;
-  background: linear-gradient(135deg, #7C3AED, #6366F1);
+  background: linear-gradient(135deg, #2563EB, #0EA5E9);
   display: flex;
   align-items: center;
   justify-content: center;
   color: white;
-  box-shadow: 0 6px 16px rgba(124, 58, 237, 0.35);
+  box-shadow: 0 6px 16px rgba(37, 99, 235, 0.35);
 }
 .brand-name {
   font-size: 1.35rem;
@@ -123,7 +125,7 @@ body::after {
   gap: 6px;
   padding: 6px 14px;
   background: rgba(255, 255, 255, 0.65);
-  border: 1px solid rgba(196, 181, 253, 0.6);
+  border: 1px solid rgba(147, 197, 253, 0.6);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   border-radius: 999px;
@@ -174,14 +176,14 @@ body::after {
 /* ===== Progress bar ===== */
 .progress-track {
   height: 6px;
-  background: rgba(196, 181, 253, 0.35);
+  background: rgba(147, 197, 253, 0.35);
   border-radius: 999px;
   overflow: hidden;
   margin-bottom: 18px;
 }
 .progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, #7C3AED, #6366F1);
+  background: linear-gradient(90deg, #2563EB, #0EA5E9);
   border-radius: 999px;
   transition: width 0.35s ease;
 }
@@ -418,7 +420,7 @@ body::after {
 .ts-link:hover { color: var(--purple-700); }
 .ts-cta {
   width: 100%;
-  background: linear-gradient(90deg, #6366F1, #7C3AED);
+  background: linear-gradient(90deg, #0EA5E9, #2563EB);
   color: white;
   border: none;
   padding: 14px;
@@ -428,9 +430,9 @@ body::after {
   cursor: pointer;
   font-family: inherit;
   transition: transform 0.15s ease, box-shadow 0.15s ease;
-  box-shadow: 0 6px 16px rgba(99, 102, 241, 0.35);
+  box-shadow: 0 6px 16px rgba(14, 165, 233, 0.35);
 }
-.ts-cta:hover { transform: translateY(-1px); box-shadow: 0 10px 22px rgba(99, 102, 241, 0.4); }
+.ts-cta:hover { transform: translateY(-1px); box-shadow: 0 10px 22px rgba(14, 165, 233, 0.4); }
 .ts-cta.waitlist {
   background: linear-gradient(90deg, #F59E0B, #F97316);
   box-shadow: 0 6px 16px rgba(245, 158, 11, 0.35);
@@ -498,7 +500,7 @@ body::after {
 .form-input:focus {
   outline: none;
   border-color: var(--purple-400);
-  box-shadow: 0 0 0 4px rgba(167, 139, 250, 0.18);
+  box-shadow: 0 0 0 4px rgba(96, 165, 250, 0.18);
   background: white;
 }
 .form-input::placeholder { color: var(--gray-400); }
@@ -506,7 +508,7 @@ body::after {
 .primary-btn {
   width: 100%;
   padding: 16px;
-  background: linear-gradient(90deg, #6366F1, #7C3AED);
+  background: linear-gradient(90deg, #0EA5E9, #2563EB);
   color: white;
   border: none;
   border-radius: 14px;
@@ -515,11 +517,11 @@ body::after {
   cursor: pointer;
   font-family: inherit;
   transition: all 0.15s ease;
-  box-shadow: 0 8px 20px rgba(99, 102, 241, 0.32);
+  box-shadow: 0 8px 20px rgba(14, 165, 233, 0.32);
 }
 .primary-btn:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 12px 24px rgba(99, 102, 241, 0.4);
+  box-shadow: 0 12px 24px rgba(14, 165, 233, 0.4);
 }
 .primary-btn:disabled {
   background: var(--gray-200);
@@ -632,8 +634,8 @@ body::after {
 }
 .cal-cell.empty { background: transparent; border: none; }
 .cal-cell.has-lesson {
-  background: rgba(124, 58, 237, 0.08);
-  border-color: rgba(124, 58, 237, 0.25);
+  background: rgba(37, 99, 235, 0.08);
+  border-color: rgba(37, 99, 235, 0.25);
 }
 .cal-cell.today {
   border: 2px solid var(--purple-500);
@@ -656,7 +658,7 @@ body::after {
 .cal-lesson-chip {
   font-size: 0.62rem;
   font-weight: 600;
-  background: rgba(124, 58, 237, 0.15);
+  background: rgba(37, 99, 235, 0.15);
   color: var(--purple-700);
   padding: 1px 4px;
   border-radius: 4px;
@@ -741,7 +743,7 @@ body::after {
   font-size: 0.88rem;
 }
 .admin-table th {
-  background: rgba(124, 58, 237, 0.08);
+  background: rgba(37, 99, 235, 0.08);
   text-align: left;
   padding: 12px 14px;
   font-weight: 700;
@@ -755,7 +757,7 @@ body::after {
   border-top: 1px solid rgba(229, 231, 235, 0.6);
   color: var(--gray-700);
 }
-.admin-table tr:hover td { background: rgba(124, 58, 237, 0.04); }
+.admin-table tr:hover td { background: rgba(37, 99, 235, 0.04); }
 
 .admin-row-actions {
   display: flex;
@@ -776,7 +778,7 @@ body::after {
 .row-action.danger:hover { background: #FEF2F2; color: var(--red-500); border-color: #FCA5A5; }
 
 .add-btn {
-  background: linear-gradient(90deg, #6366F1, #7C3AED);
+  background: linear-gradient(90deg, #0EA5E9, #2563EB);
   color: white;
   border: none;
   border-radius: 10px;
@@ -910,7 +912,7 @@ body::after {
   color: var(--red-500);
 }
 .attendance-badge.upcoming {
-  background: rgba(99, 102, 241, 0.12);
+  background: rgba(14, 165, 233, 0.12);
   color: var(--indigo-600);
 }
 
