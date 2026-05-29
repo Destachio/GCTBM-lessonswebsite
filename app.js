@@ -41,6 +41,9 @@ const toUiBooking = (r) => ({
   id: r.id, timeslotId: r.timeslot_id, name: r.full_name,
   email: r.email, phone: r.phone, status: r.status,
   bookedAt: r.booked_at, attendance: r.attendance || {},
+  handicap: r.handicap || null, isMember: !!r.is_member,
+  inviteeName: r.invitee_name || null, price: r.price != null ? Number(r.price) : null,
+  checkinCode: r.checkin_code || null,
 });
 
 /* -------------------------------- API ----------------------------------- */
@@ -81,21 +84,24 @@ const db = {
     }));
   },
 
-  async createBooking({ timeslotId, name, email, phone, replaceIds = [] }) {
+  async createBooking({ timeslotId, name, email, phone, handicap, isMember, inviteeName, replaceIds = [] }) {
     const { data, error } = await SB.rpc("create_booking", {
       p_timeslot_id: timeslotId,
       p_full_name: name,
       p_email: email,
       p_phone: phone,
+      p_handicap: handicap || null,
+      p_is_member: !!isMember,
+      p_invitee_name: inviteeName || null,
       p_replace_ids: replaceIds,
     });
     if (error) throw error;
     const row = Array.isArray(data) ? data[0] : data;
-    return { id: row.booking_id, status: row.booking_status };
+    return { id: row.booking_id, status: row.booking_status, code: row.checkin_code, price: Number(row.price) };
   },
 
-  async getMyBookings(email) {
-    const { data, error } = await SB.rpc("get_my_bookings", { p_email: email });
+  async getMyBookings(email, code) {
+    const { data, error } = await SB.rpc("get_my_bookings", { p_email: email, p_code: code });
     if (error) throw error;
     return (data || []).map((r) => ({
       id: r.id,
@@ -105,9 +111,9 @@ const db = {
     }));
   },
 
-  async toggleAttendance(email, bookingId, date) {
+  async toggleAttendance(email, code, bookingId, date) {
     const { data, error } = await SB.rpc("toggle_attendance", {
-      p_email: email, p_booking_id: bookingId, p_date: date,
+      p_email: email, p_code: code, p_booking_id: bookingId, p_date: date,
     });
     if (error) throw error;
     return data || {};
@@ -282,6 +288,13 @@ const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Frid
 const DAY_PLURAL = ["Sundays", "Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays"];
 const TIME_BLOCKS = ["17:00-18:00", "18:00-19:00", "19:00-20:00"];
 
+/* Pricing — kept in sync with the server-side compute_price() function. */
+const PRICING = {
+  member:    { beginner: 135, intermediate: 110, advanced: 110 },
+  nonmember: { beginner: 175, intermediate: 150, advanced: 150 },
+};
+const priceFor = (level, isMember) => (isMember ? PRICING.member : PRICING.nonmember)[level] ?? 0;
+
 /* ----------------------------- Util ---------------------------------- */
 const uid = (prefix) => `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
 const formatShortDate = (iso) => {
@@ -341,7 +354,7 @@ function App() {
   const [loadError, setLoadError] = useState(null);
   const [session, setSession] = useState(null);
   const [view, setView] = useState({ name: "booking", step: 1 });
-  const [draft, setDraft] = useState({ level: null, location: null, timeslotId: null, name: "", email: "", phone: "" });
+  const [draft, setDraft] = useState({ level: null, location: null, timeslotId: null, name: "", email: "", phone: "", handicap: "", isMember: false, inviting: false, inviteeName: "" });
   const [currentSeasonId, setCurrentSeasonId] = useState(null);
 
   const refresh = useCallback(async () => {
@@ -541,7 +554,7 @@ function BookingFlow({ state, refresh, draft, setDraft, view, setView }) {
           state={state}
           draft={draft}
           isWaitlist={view.isWaitlist}
-          onReset={() => { setDraft({ level: null, location: null, timeslotId: null, name: "", email: "", phone: "" }); setView({ name: "booking", step: 1 }); }}
+          onReset={() => { setDraft({ level: null, location: null, timeslotId: null, name: "", email: "", phone: "", handicap: "", isMember: false, inviting: false, inviteeName: "" }); setView({ name: "booking", step: 1 }); }}
         />
       )}
     </>
@@ -691,7 +704,9 @@ function Step4Confirm({ state, refresh, draft, setDraft, onComplete }) {
   const avail = state.availability[ts?.id] || { booked: 0 };
   const isWaitlist = avail.booked >= (ts?.maxTrainees || 0);
 
-  const ready = draft.name.trim() && draft.email.trim() && draft.phone.trim();
+  const currentPrice = ts ? priceFor(ts.level, draft.isMember) : 0;
+  const invitingValid = !draft.inviting || draft.inviteeName.trim();
+  const ready = draft.name.trim() && draft.email.trim() && draft.phone.trim() && invitingValid;
   const [submitting, setSubmitting] = useState(false);
   const [errMsg, setErrMsg] = useState(null);
   const [duplicateWarning, setDuplicateWarning] = useState(null);
@@ -705,9 +720,12 @@ function Step4Confirm({ state, refresh, draft, setDraft, onComplete }) {
         name: draft.name.trim(),
         email: draft.email.trim(),
         phone: draft.phone.trim(),
+        handicap: draft.handicap.trim(),
+        isMember: draft.isMember,
+        inviteeName: draft.inviting ? draft.inviteeName.trim() : "",
         replaceIds,
       });
-      setDraft((d) => ({ ...d, bookingId: result.id }));
+      setDraft((d) => ({ ...d, bookingId: result.id, checkinCode: result.code, finalPrice: result.price }));
       await refresh(); // refresh availability counts
       onComplete(result.id, result.status === "waitlist");
     } catch (e) {
@@ -750,7 +768,8 @@ function Step4Confirm({ state, refresh, draft, setDraft, onComplete }) {
         <div className="confirm-row"><span className="lbl">Location</span><span className="val">{loc?.name}</span></div>
         <div className="confirm-row"><span className="lbl">Coach</span><span className="val">{loc?.coach}</span></div>
         <div className="confirm-row"><span className="lbl">Schedule</span><span className="val">{DAY_PLURAL[ts.day]} @ {ts.time}</span></div>
-        <div className="confirm-row total"><span className="lbl">Total Price</span><span className="val">€{season?.price?.toFixed(2)}</span></div>
+        <div className="confirm-row"><span className="lbl">Rate</span><span className="val">{draft.isMember ? "GCTBM member" : "Non-member"}</span></div>
+        <div className="confirm-row total"><span className="lbl">Total Price</span><span className="val">€{currentPrice.toFixed(2)}</span></div>
       </div>
 
       {isWaitlist && (
@@ -764,9 +783,24 @@ function Step4Confirm({ state, refresh, draft, setDraft, onComplete }) {
         <input className="form-input" type="text" placeholder="Full Name" value={draft.name} onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))} />
         <input className="form-input" type="email" placeholder="Email Address" value={draft.email} onChange={(e) => setDraft((d) => ({ ...d, email: e.target.value }))} />
         <input className="form-input" type="tel" placeholder="Phone Number" value={draft.phone} onChange={(e) => setDraft((d) => ({ ...d, phone: e.target.value }))} />
-        {errMsg && <p style={{color: "var(--red-500)", fontSize: "0.85rem", marginTop: -4, marginBottom: 12}}>{errMsg}</p>}
+        <input className="form-input" type="text" placeholder="Handicap (e.g. 36, or leave blank)" value={draft.handicap} onChange={(e) => setDraft((d) => ({ ...d, handicap: e.target.value }))} />
+
+        <label className="check-line">
+          <input type="checkbox" checked={draft.isMember} onChange={(e) => setDraft((d) => ({ ...d, isMember: e.target.checked }))} />
+          <span>I am a <b>GCTBM club member</b> {draft.isMember ? "" : "(members pay a reduced rate)"}</span>
+        </label>
+
+        <label className="check-line">
+          <input type="checkbox" checked={draft.inviting} onChange={(e) => setDraft((d) => ({ ...d, inviting: e.target.checked, inviteeName: e.target.checked ? d.inviteeName : "" }))} />
+          <span>I'm inviting someone to join these lessons</span>
+        </label>
+        {draft.inviting && (
+          <input className="form-input" type="text" placeholder="Name of the person you're inviting" value={draft.inviteeName} onChange={(e) => setDraft((d) => ({ ...d, inviteeName: e.target.value }))} />
+        )}
+
+        {errMsg && <p style={{color: "var(--red-500)", fontSize: "0.85rem", marginTop: 4, marginBottom: 12}}>{errMsg}</p>}
         <button className="primary-btn" type="submit" disabled={!ready || submitting}>
-          {submitting ? "Working…" : (isWaitlist ? "Join Waitlist" : "Proceed to Payment")}
+          {submitting ? "Working…" : (isWaitlist ? "Join Waitlist" : `Proceed to Payment · €${currentPrice.toFixed(2)}`)}
         </button>
       </form>
 
@@ -860,6 +894,15 @@ function Step5Success({ state, draft, isWaitlist, onReset }) {
             ? "We'll contact you as soon as a spot opens up. Your calendar template has been prepared as well."
             : "You are being redirected to the secure payment portal. We have also prepared your calendar schedule."}
         </p>
+
+        {draft.checkinCode && (
+          <div className="code-box">
+            <span className="code-label">Your check-in code</span>
+            <span className="code-value">{draft.checkinCode}</span>
+            <span className="code-hint">Save this — you'll need your email <b>and</b> this code to check in to lessons.</span>
+          </div>
+        )}
+
         <div className="success-actions">
           <button className="secondary-btn" onClick={handleAddCalendar}>
             <Icon.Download size={16} /> Add to Calendar
@@ -1640,8 +1683,13 @@ function AdminTrainees({ state, refresh }) {
             return (
               <div key={b.id} className="trainee-row">
                 <div className="info">
-                  <span className="trainee-name">{b.name}</span>
+                  <span className="trainee-name">{b.name} {b.isMember && <span className="member-tag">MEMBER</span>}</span>
                   <span className="trainee-contact">{b.email} • {b.phone}</span>
+                  <span className="trainee-contact">
+                    {b.handicap ? `HCP ${b.handicap}` : "HCP —"}
+                    {b.price != null && ` • €${b.price.toFixed(2)}`}
+                    {b.inviteeName && ` • invited: ${b.inviteeName}`}
+                  </span>
                   <span className="trainee-contact">Attended {attended}/{ts.lessonDates.length} lessons</span>
                 </div>
                 <div style={{display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end"}}>
@@ -1781,16 +1829,19 @@ function AdminLocations({ state, refresh }) {
 /* ============================== CHECK-IN PORTAL ============================== */
 function CheckinPortal({ state }) {
   const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [myBookings, setMyBookings] = useState([]);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(null);
 
+  const canLookup = email.trim() && code.trim();
+
   const lookup = async () => {
-    if (!email.trim()) return;
+    if (!canLookup) return;
     setLoading(true); setErr(null);
     try {
-      const list = await db.getMyBookings(email.trim());
+      const list = await db.getMyBookings(email.trim(), code.trim());
       setMyBookings(list);
     } catch (e) { setErr(e.message); }
     setLoading(false);
@@ -1799,7 +1850,7 @@ function CheckinPortal({ state }) {
 
   const toggle = async (bookingId, date) => {
     try {
-      const updated = await db.toggleAttendance(email.trim(), bookingId, date);
+      const updated = await db.toggleAttendance(email.trim(), code.trim(), bookingId, date);
       setMyBookings((arr) => arr.map((b) => b.id === bookingId ? { ...b, attendance: updated } : b));
     } catch (e) { alert(e.message); }
   };
@@ -1807,7 +1858,7 @@ function CheckinPortal({ state }) {
   return (
     <div className="glass-card">
       <h2 className="title">Trainee Check-In</h2>
-      <p className="subtitle">Enter your email to view and check in to your upcoming lessons.</p>
+      <p className="subtitle">Enter your email and the check-in code from your booking to view your lessons.</p>
 
       <input
         className="form-input"
@@ -1815,11 +1866,23 @@ function CheckinPortal({ state }) {
         placeholder="Email Address"
         value={email}
         onChange={(e) => { setEmail(e.target.value); setSubmitted(false); }}
-        onKeyDown={(e) => { if (e.key === "Enter") lookup(); }}
       />
-      <button className="primary-btn" onClick={lookup} disabled={!email.trim() || loading}>
+      <input
+        className="form-input"
+        type="text"
+        placeholder="Check-in code (e.g. A1B2C3)"
+        value={code}
+        onChange={(e) => { setCode(e.target.value.toUpperCase()); setSubmitted(false); }}
+        onKeyDown={(e) => { if (e.key === "Enter") lookup(); }}
+        style={{textTransform: "uppercase", letterSpacing: "0.15em", fontWeight: 600}}
+        maxLength={6}
+      />
+      <button className="primary-btn" onClick={lookup} disabled={!canLookup || loading}>
         {loading ? "Looking up…" : "Find My Lessons"}
       </button>
+      <p className="muted" style={{fontSize: "0.8rem", marginTop: 10, textAlign: "center"}}>
+        Your code was shown when you booked. Lost it? Contact the golf school.
+      </p>
 
       {err && <p style={{color: "var(--red-500)", marginTop: 12}}>{err}</p>}
 
@@ -1828,7 +1891,7 @@ function CheckinPortal({ state }) {
           {myBookings.length === 0 && (
             <div className="empty-state">
               <div className="ico"><Icon.User size={24} /></div>
-              <p>No active bookings found for this email.</p>
+              <p>No bookings found for that email and code. Please double-check both.</p>
             </div>
           )}
 

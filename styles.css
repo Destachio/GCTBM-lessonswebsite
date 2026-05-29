@@ -1032,6 +1032,79 @@ body::after {
 }
 .checkin-big-btn.done { background: var(--gray-200); color: var(--gray-500); box-shadow: none; cursor: default; }
 
+/* ===== Checkbox lines (booking form) ===== */
+.check-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  background: rgba(255, 255, 255, 0.6);
+  border: 1px solid rgba(229, 231, 235, 0.9);
+  border-radius: 12px;
+  cursor: pointer;
+  font-size: 0.92rem;
+  color: var(--gray-700);
+  line-height: 1.4;
+}
+.check-line input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--purple-600);
+  flex-shrink: 0;
+  margin-top: 1px;
+  cursor: pointer;
+}
+.check-line:hover { border-color: var(--purple-300); }
+
+/* ===== Check-in code box (success screen) ===== */
+.code-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 18px;
+  margin-bottom: 22px;
+  background: linear-gradient(135deg, rgba(37,99,235,0.08), rgba(14,165,233,0.08));
+  border: 1px dashed var(--purple-400);
+  border-radius: var(--radius);
+}
+.code-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--purple-600);
+}
+.code-value {
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: 0.25em;
+  color: var(--purple-700);
+  font-family: 'Courier New', monospace;
+}
+.code-hint {
+  font-size: 0.78rem;
+  color: var(--gray-500);
+  text-align: center;
+  margin-top: 2px;
+}
+
+/* ===== Member tag ===== */
+.member-tag {
+  display: inline-block;
+  font-size: 0.6rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: var(--purple-100);
+  color: var(--purple-700);
+  vertical-align: middle;
+  margin-left: 6px;
+}
+
 /* ===== Spinner ===== */
 .spinner {
   display: inline-flex;

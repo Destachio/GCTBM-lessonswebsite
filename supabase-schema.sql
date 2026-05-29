@@ -59,8 +59,19 @@ create table if not exists public.bookings (
   phone        text not null,
   status       text not null check (status in ('booked','waitlist','cancelled')) default 'booked',
   booked_at    timestamptz not null default now(),
-  attendance   jsonb not null default '{}'::jsonb
+  attendance   jsonb not null default '{}'::jsonb,
+  handicap     text,
+  is_member    boolean not null default false,
+  invitee_name text,
+  price        numeric(10,2),
+  checkin_code text
 );
+-- (idempotent column adds for existing installs)
+alter table public.bookings add column if not exists handicap     text;
+alter table public.bookings add column if not exists is_member    boolean not null default false;
+alter table public.bookings add column if not exists invitee_name text;
+alter table public.bookings add column if not exists price        numeric(10,2);
+alter table public.bookings add column if not exists checkin_code text;
 create index if not exists bookings_timeslot_idx on public.bookings(timeslot_id);
 create index if not exists bookings_email_idx    on public.bookings(lower(email));
 create index if not exists bookings_phone_idx    on public.bookings(regexp_replace(phone, '[^0-9]', '', 'g'));
@@ -171,20 +182,35 @@ language sql security definer set search_path = public as $$
 $$;
 grant execute on function public.find_existing_bookings(text,text,text) to anon, authenticated;
 
--- 3c) Create a booking (anon-callable; validates capacity, can replace prior bookings)
+-- 3b2) Server-authoritative pricing (members vs non-members, by level)
+create or replace function public.compute_price(p_level text, p_is_member boolean)
+returns numeric language sql immutable as $$
+  select case
+    when p_is_member then (case when p_level = 'beginner' then 135 else 110 end)
+    else                  (case when p_level = 'beginner' then 175 else 150 end)
+  end::numeric;
+$$;
+grant execute on function public.compute_price(text, boolean) to anon, authenticated;
+
+-- 3c) Create a booking. Captures details, computes price, generates a check-in code.
+drop function if exists public.create_booking(text,text,text,text,uuid[]);
+drop function if exists public.create_booking(text,text,text,text,text,boolean,text,uuid[]);
 create or replace function public.create_booking(
-  p_timeslot_id text,
-  p_full_name   text,
-  p_email       text,
-  p_phone       text,
-  p_replace_ids uuid[] default '{}'
+  p_timeslot_id  text,
+  p_full_name    text,
+  p_email        text,
+  p_phone        text,
+  p_handicap     text,
+  p_is_member    boolean,
+  p_invitee_name text,
+  p_replace_ids  uuid[] default '{}'
 )
-returns table (booking_id uuid, booking_status text)
+returns table (booking_id uuid, booking_status text, checkin_code text, price numeric)
 language plpgsql security definer set search_path = public as $$
 declare
-  v_max int; v_booked int; v_status text; v_new_id uuid;
+  v_max int; v_level text; v_booked int; v_status text; v_new_id uuid; v_code text; v_price numeric;
 begin
-  select t.max_trainees into v_max from timeslots t where t.id = p_timeslot_id;
+  select t.max_trainees, t.level into v_max, v_level from timeslots t where t.id = p_timeslot_id;
   if v_max is null then raise exception 'Timeslot not found'; end if;
 
   if coalesce(array_length(p_replace_ids,1),0) > 0 then
@@ -195,40 +221,60 @@ begin
     where b.timeslot_id = p_timeslot_id and b.status = 'booked';
   v_status := case when v_booked >= v_max then 'waitlist' else 'booked' end;
 
-  insert into bookings (timeslot_id, full_name, email, phone, status)
-  values (p_timeslot_id, trim(p_full_name), trim(p_email), trim(p_phone), v_status)
+  v_price := compute_price(v_level, coalesce(p_is_member, false));
+  v_code  := upper(substr(md5(random()::text || clock_timestamp()::text), 1, 6));
+
+  insert into bookings (timeslot_id, full_name, email, phone, status, handicap, is_member, invitee_name, price, checkin_code)
+  values (
+    p_timeslot_id, trim(p_full_name), trim(p_email), trim(p_phone), v_status,
+    nullif(trim(coalesce(p_handicap,'')), ''),
+    coalesce(p_is_member, false),
+    nullif(trim(coalesce(p_invitee_name,'')), ''),
+    v_price, v_code
+  )
   returning id into v_new_id;
 
-  return query select v_new_id, v_status;
+  return query select v_new_id, v_status, v_code, v_price;
 end;
 $$;
-grant execute on function public.create_booking(text,text,text,text,uuid[]) to anon, authenticated;
+grant execute on function public.create_booking(text,text,text,text,text,boolean,text,uuid[]) to anon, authenticated;
 
--- 3d) Trainee fetches OWN bookings (check-in portal). Does not echo PII.
+-- 3d) Trainee fetches OWN bookings — requires email + a valid check-in code.
 drop function if exists public.get_my_bookings(text);
-create or replace function public.get_my_bookings(p_email text)
-returns table (
-  id              uuid,
-  timeslot_id     text,
-  booking_status  text,
-  attendance      jsonb
-)
+drop function if exists public.get_my_bookings(text,text);
+create or replace function public.get_my_bookings(p_email text, p_code text)
+returns table (id uuid, timeslot_id text, booking_status text, attendance jsonb)
 language sql security definer set search_path = public as $$
   select b.id, b.timeslot_id, b.status, b.attendance
   from bookings b
   where lower(trim(b.email)) = lower(trim(p_email))
-    and b.status in ('booked','waitlist');
+    and b.status in ('booked','waitlist')
+    and exists (
+      select 1 from bookings v
+      where lower(trim(v.email)) = lower(trim(p_email))
+        and upper(trim(v.checkin_code)) = upper(trim(p_code))
+    );
 $$;
-grant execute on function public.get_my_bookings(text) to anon, authenticated;
+grant execute on function public.get_my_bookings(text, text) to anon, authenticated;
 
--- 3e) Toggle attendance for a lesson (trainee, scoped by email)
+-- 3e) Toggle attendance — requires email + valid check-in code.
+drop function if exists public.toggle_attendance(text,uuid,date);
+drop function if exists public.toggle_attendance(text,text,uuid,date);
 create or replace function public.toggle_attendance(
-  p_email text, p_booking_id uuid, p_date date
+  p_email text, p_code text, p_booking_id uuid, p_date date
 )
 returns jsonb
 language plpgsql security definer set search_path = public as $$
 declare v_att jsonb; v_owner text;
 begin
+  if not exists (
+    select 1 from bookings
+    where lower(trim(email)) = lower(trim(p_email))
+      and upper(trim(checkin_code)) = upper(trim(p_code))
+  ) then
+    raise exception 'Invalid check-in code';
+  end if;
+
   select email, attendance into v_owner, v_att from bookings where id = p_booking_id;
   if v_owner is null or lower(trim(v_owner)) <> lower(trim(p_email)) then
     raise exception 'Not authorised';
@@ -240,7 +286,7 @@ begin
   return v_att;
 end;
 $$;
-grant execute on function public.toggle_attendance(text,uuid,date) to anon, authenticated;
+grant execute on function public.toggle_attendance(text,text,uuid,date) to anon, authenticated;
 
 -- 3f) Trainer-scoped lesson update (cancel / reschedule).
 create or replace function public.trainer_update_lessons(
