@@ -211,6 +211,36 @@ const db = {
     if (error) throw error;
     return data || null;
   },
+  /* ---- Lesson notes ---- */
+  async listLessonNotes(timeslotId) {
+    const { data, error } = await SB.from("lesson_notes")
+      .select("*").eq("timeslot_id", timeslotId);
+    if (error) throw error;
+    const map = {};
+    (data || []).forEach((r) => {
+      map[String(r.lesson_date).slice(0, 10)] = {
+        body: r.body, author: r.author_email, updatedAt: r.updated_at,
+      };
+    });
+    return map;
+  },
+  async saveLessonNote(timeslotId, lessonDate, body) {
+    const { error } = await SB.rpc("save_lesson_note", {
+      p_timeslot_id: timeslotId, p_lesson_date: lessonDate, p_body: body,
+    });
+    if (error) throw error;
+  },
+  async getMyLessonNotes(email, code) {
+    const { data, error } = await SB.rpc("get_my_lesson_notes", { p_email: email, p_code: code });
+    if (error) throw error;
+    const map = {};
+    (data || []).forEach((r) => {
+      const key = `${r.timeslot_id}|${String(r.lesson_date).slice(0, 10)}`;
+      map[key] = { body: r.body, updatedAt: r.updated_at };
+    });
+    return map;
+  },
+
   async trainerUpdateLessons(timeslotId, lessonDates, cancelledDates) {
     const { error } = await SB.rpc("trainer_update_lessons", {
       p_timeslot_id: timeslotId,
@@ -278,6 +308,7 @@ const Icon = {
   Edit: (p) => (<svg width={p.size||14} height={p.size||14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>),
   Trash: (p) => (<svg width={p.size||14} height={p.size||14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1.5 14a2 2 0 0 1-2 1.84h-7a2 2 0 0 1-2-1.84L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>),
   Copy: (p) => (<svg width={p.size||14} height={p.size||14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>),
+  Note: (p) => (<svg width={p.size||14} height={p.size||14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>),
   Loader: (p) => (<svg width={p.size||24} height={p.size||24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/></svg>),
 };
 
@@ -1340,6 +1371,26 @@ function TrainerLessonsEditor({ timeslot, location, refresh }) {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState(null);
   const [reschedule, setReschedule] = useState(null); // { date, newDate }
+  const [notes, setNotes] = useState({});             // { "YYYY-MM-DD": {body, author, updatedAt} }
+  const [noteEditor, setNoteEditor] = useState(null); // { date, body }
+  const [savingNote, setSavingNote] = useState(false);
+
+  const loadNotes = async () => {
+    try { setNotes(await db.listLessonNotes(timeslot.id)); }
+    catch (e) { console.error(e); }
+  };
+  useEffect(() => { setNotes({}); loadNotes(); /* eslint-disable-next-line */ }, [timeslot.id]);
+
+  const saveNote = async () => {
+    if (!noteEditor) return;
+    setSavingNote(true); setErr(null);
+    try {
+      await db.saveLessonNote(timeslot.id, noteEditor.date, noteEditor.body);
+      await loadNotes();
+      setNoteEditor(null);
+    } catch (e) { setErr(e.message); }
+    setSavingNote(false);
+  };
 
   const apply = async (newLessonDates, newCancelledDates) => {
     setBusy(true); setErr(null);
@@ -1393,16 +1444,32 @@ function TrainerLessonsEditor({ timeslot, location, refresh }) {
         )}
         {timeslot.lessonDates.map((d, i) => {
           const past = d < today;
+          const note = notes[d];
           return (
-            <div key={d} className="lesson-row">
-              <div className="lesson-info">
-                <span className="lesson-week">Lesson {i + 1}{past ? " (past)" : ""}</span>
-                <span className="lesson-date">{formatShortDate(d)}</span>
+            <div key={d} className="lesson-block">
+              <div className="lesson-row" style={{borderRadius: note ? "12px 12px 0 0" : undefined, borderBottom: note ? "none" : undefined}}>
+                <div className="lesson-info">
+                  <span className="lesson-week">Lesson {i + 1}{past ? " (past)" : ""}</span>
+                  <span className="lesson-date">{formatShortDate(d)}</span>
+                </div>
+                <div style={{display: "flex", gap: 6, flexWrap: "wrap", justifyContent: "flex-end"}}>
+                  <button
+                    className={`row-action ${note ? "has-note" : ""}`}
+                    disabled={busy}
+                    onClick={() => setNoteEditor({ date: d, body: note ? note.body : "" })}
+                  >
+                    <Icon.Note /> {note ? "Edit note" : "Add note"}
+                  </button>
+                  <button className="row-action" disabled={busy || past} onClick={() => setReschedule({ date: d, newDate: d })}>Reschedule</button>
+                  <button className="row-action danger" disabled={busy || past} onClick={() => cancelLesson(d)}>Cancel</button>
+                </div>
               </div>
-              <div style={{display: "flex", gap: 6}}>
-                <button className="row-action" disabled={busy || past} onClick={() => setReschedule({ date: d, newDate: d })}>Reschedule</button>
-                <button className="row-action danger" disabled={busy || past} onClick={() => cancelLesson(d)}>Cancel</button>
-              </div>
+              {note && (
+                <div className="lesson-note">
+                  <span className="lesson-note-label">Note to trainees</span>
+                  <p className="lesson-note-body">{note.body}</p>
+                </div>
+              )}
             </div>
           );
         })}
@@ -1423,6 +1490,37 @@ function TrainerLessonsEditor({ timeslot, location, refresh }) {
             ))}
           </div>
         </>
+      )}
+
+      {noteEditor && (
+        <div className="modal-overlay" onClick={() => setNoteEditor(null)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <h3>Note for {formatShortDate(noteEditor.date)}</h3>
+            <p className="muted" style={{fontSize: "0.88rem", marginTop: 0}}>
+              Everyone booked on this course sees this when they check in. Good for what you covered,
+              homework, or what to bring next time.
+            </p>
+            <textarea
+              className="form-input note-textarea"
+              rows={6}
+              autoFocus
+              placeholder="e.g. Today we worked on putting distance control. Before next week, practise the 3-metre drill and bring a spare glove."
+              value={noteEditor.body}
+              onChange={(e) => setNoteEditor({ ...noteEditor, body: e.target.value })}
+            />
+            <p className="muted" style={{fontSize: "0.75rem", margin: "0 0 4px"}}>
+              {noteEditor.body.trim()
+                ? `${noteEditor.body.trim().length} characters`
+                : "Leaving this empty removes the note."}
+            </p>
+            <div className="modal-actions">
+              <button className="secondary-btn" onClick={() => setNoteEditor(null)}>Cancel</button>
+              <button className="primary-btn" onClick={saveNote} disabled={savingNote}>
+                {savingNote ? "Saving…" : (noteEditor.body.trim() ? "Save note" : "Remove note")}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {reschedule && (
@@ -1998,6 +2096,7 @@ function CheckinPortal({ state }) {
   const [code, setCode] = useState("");
   const [submitted, setSubmitted] = useState(false);
   const [myBookings, setMyBookings] = useState([]);
+  const [notes, setNotes] = useState({});   // { "timeslotId|YYYY-MM-DD": {body, updatedAt} }
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState(null);
 
@@ -2007,8 +2106,12 @@ function CheckinPortal({ state }) {
     if (!canLookup) return;
     setLoading(true); setErr(null);
     try {
-      const list = await db.getMyBookings(email.trim(), code.trim());
+      const [list, noteMap] = await Promise.all([
+        db.getMyBookings(email.trim(), code.trim()),
+        db.getMyLessonNotes(email.trim(), code.trim()),
+      ]);
       setMyBookings(list);
+      setNotes(noteMap);
     } catch (e) { setErr(e.message); }
     setLoading(false);
     setSubmitted(true);
@@ -2085,18 +2188,27 @@ function CheckinPortal({ state }) {
                     const past = d < today;
                     const isToday = d === today;
                     const checked = !!(b.attendance && b.attendance[d]);
+                    const note = notes[`${ts.id}|${d}`];
                     return (
-                      <div key={d} className="lesson-row">
-                        <div className="lesson-info">
-                          <span className="lesson-week">Lesson {i + 1}</span>
-                          <span className="lesson-date">{formatShortDate(d)}{isToday && " • Today"}</span>
+                      <div key={d} className="lesson-block">
+                        <div className="lesson-row" style={{borderRadius: note ? "12px 12px 0 0" : undefined, borderBottom: note ? "none" : undefined}}>
+                          <div className="lesson-info">
+                            <span className="lesson-week">Lesson {i + 1}</span>
+                            <span className="lesson-date">{formatShortDate(d)}{isToday && " • Today"}</span>
+                          </div>
+                          {isToday || past ? (
+                            <button className={`check-toggle ${checked ? "on" : ""}`} onClick={() => toggle(b.id, d)}>
+                              {checked ? <><Icon.Check size={14} /> Checked In</> : "Check In"}
+                            </button>
+                          ) : (
+                            <span className="attendance-badge upcoming">Upcoming</span>
+                          )}
                         </div>
-                        {isToday || past ? (
-                          <button className={`check-toggle ${checked ? "on" : ""}`} onClick={() => toggle(b.id, d)}>
-                            {checked ? <><Icon.Check size={14} /> Checked In</> : "Check In"}
-                          </button>
-                        ) : (
-                          <span className="attendance-badge upcoming">Upcoming</span>
+                        {note && (
+                          <div className="lesson-note">
+                            <span className="lesson-note-label"><Icon.Note size={12} /> From your coach</span>
+                            <p className="lesson-note-body">{note.body}</p>
+                          </div>
                         )}
                       </div>
                     );

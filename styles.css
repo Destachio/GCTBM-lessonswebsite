@@ -1091,6 +1091,49 @@ body::after {
   margin-top: 2px;
 }
 
+/* ===== Lesson notes (trainer -> trainees) ===== */
+.lesson-block { display: flex; flex-direction: column; }
+
+.lesson-note {
+  background: rgba(14, 165, 233, 0.09);
+  border: 1px solid rgba(14, 165, 233, 0.28);
+  border-top: none;
+  border-radius: 0 0 12px 12px;
+  padding: 10px 16px 12px;
+}
+.lesson-note-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--indigo-600);
+}
+.lesson-note-body {
+  margin: 4px 0 0;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: var(--gray-700);
+  white-space: pre-wrap;   /* keep the trainer's line breaks */
+  overflow-wrap: anywhere;
+}
+
+.row-action.has-note {
+  background: rgba(14, 165, 233, 0.12);
+  border-color: rgba(14, 165, 233, 0.4);
+  color: var(--indigo-600);
+}
+.row-action .lucide, .row-action svg { vertical-align: -2px; }
+
+.note-textarea {
+  font-family: inherit;
+  line-height: 1.5;
+  resize: vertical;
+  min-height: 120px;
+}
+
 /* ===== Season price grid (admin) ===== */
 .price-grid {
   width: 100%;
