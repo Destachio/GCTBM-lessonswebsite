@@ -274,6 +274,7 @@ const Icon = {
   Plus: (p) => (<svg width={p.size||14} height={p.size||14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>),
   Edit: (p) => (<svg width={p.size||14} height={p.size||14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>),
   Trash: (p) => (<svg width={p.size||14} height={p.size||14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1.5 14a2 2 0 0 1-2 1.84h-7a2 2 0 0 1-2-1.84L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>),
+  Copy: (p) => (<svg width={p.size||14} height={p.size||14} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>),
   Loader: (p) => (<svg width={p.size||24} height={p.size||24} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/></svg>),
 };
 
@@ -304,6 +305,49 @@ const formatShortDate = (iso) => {
 };
 const cap = (s) => (s || "").charAt(0).toUpperCase() + (s || "").slice(1);
 const todayISO = () => new Date().toISOString().slice(0, 10);
+
+/**
+ * Build a blank timeslot draft, or a copy of an existing one.
+ *
+ * When copying within the same season the lesson dates are carried over as-is,
+ * so a duplicated course keeps any hand-tuned schedule. When copying into a
+ * different season those dates would fall outside it, so they are regenerated
+ * from the target season's start date on the same weekday.
+ *
+ * Cancellations are never inherited — they belong to the original course.
+ */
+function newTimeslotDraft(state, source) {
+  const seasonId = state.currentSeason;
+  const season = state.seasons[seasonId];
+
+  if (source) {
+    const sameSeason = source.season === seasonId;
+    return {
+      ...source,
+      id: uid("ts"),
+      season: seasonId,
+      lessonDates: sameSeason
+        ? [...(source.lessonDates || [])]
+        : defaultWeeksFromDate(season.startDate, source.day),
+      cancelledDates: [],
+      isNew: true,
+      copiedFrom: source.id,
+    };
+  }
+
+  return {
+    id: uid("ts"),
+    season: seasonId,
+    location: Object.keys(state.locations)[0],
+    day: 1,
+    time: TIME_BLOCKS[1],
+    level: "beginner",
+    maxTrainees: 7,
+    lessonDates: defaultWeeksFromDate(season.startDate, 1),
+    cancelledDates: [],
+    isNew: true,
+  };
+}
 
 function defaultWeeksFromDate(dateStr, dayOfWeek) {
   const start = new Date(dateStr);
@@ -1485,17 +1529,7 @@ function AdminTimeslots({ state, refresh }) {
             <option value="all">All locations</option>
             {Object.values(state.locations).map((l) => <option key={l.id} value={l.id}>{l.name}</option>)}
           </select>
-          <button className="add-btn" onClick={() => setEditing({
-            id: uid("ts"),
-            season: state.currentSeason,
-            location: Object.keys(state.locations)[0],
-            day: 1,
-            time: TIME_BLOCKS[1],
-            level: "beginner",
-            maxTrainees: 7,
-            lessonDates: defaultWeeksFromDate(state.seasons[state.currentSeason].startDate, 1),
-            isNew: true,
-          })}><Icon.Plus /> Add</button>
+          <button className="add-btn" onClick={() => setEditing(newTimeslotDraft(state))}><Icon.Plus /> Add</button>
         </div>
       </div>
 
@@ -1524,6 +1558,7 @@ function AdminTimeslots({ state, refresh }) {
                   <td>
                     <div className="admin-row-actions">
                       <button className="row-action" onClick={() => setEditing(t)}><Icon.Edit /> Edit</button>
+                      <button className="row-action" title="Create a new timeslot with these settings" onClick={() => setEditing(newTimeslotDraft(state, t))}><Icon.Copy /> Duplicate</button>
                       <button className="row-action danger" disabled={busyId === t.id} onClick={() => handleDelete(t.id)}><Icon.Trash /></button>
                     </div>
                   </td>
@@ -1544,17 +1579,45 @@ function AdminTimeslots({ state, refresh }) {
 function TimeslotEditor({ timeslot, state, onSave, onClose }) {
   const [t, setT] = useState({ ...timeslot });
   const [saving, setSaving] = useState(false);
+  const [copiedFromLabel, setCopiedFromLabel] = useState(null);
   const season = state.seasons[t.season];
 
   useEffect(() => {
-    if (timeslot.isNew && season) {
+    // Seed the dates for a blank new timeslot. Skipped when duplicating, so the
+    // copied schedule survives.
+    if (timeslot.isNew && !timeslot.copiedFrom && season) {
       setT((cur) => ({ ...cur, lessonDates: defaultWeeksFromDate(season.startDate, cur.day) }));
     }
     // eslint-disable-next-line
   }, []);
 
+  const slotLabel = (s) =>
+    `${state.seasons[s.season]?.name || s.season} · ${state.locations[s.location]?.name || s.location} · ${DAY_NAMES[s.day]} ${s.time} · ${cap(s.level)}`;
+
+  const applyCopy = (sourceId) => {
+    const src = state.timeslots.find((x) => x.id === sourceId);
+    if (!src) return;
+    const draft = newTimeslotDraft(state, src);
+    setT((cur) => ({ ...draft, id: cur.id }));
+    setCopiedFromLabel(slotLabel(src));
+  };
+
+  // Moving the course to another weekday shifts every lesson by the same number
+  // of days, so custom schedules (skipped weeks, holiday gaps) are preserved.
   const regenDates = (day) => {
-    setT((cur) => ({ ...cur, day, lessonDates: defaultWeeksFromDate(season.startDate, day) }));
+    setT((cur) => {
+      const delta = (day - cur.day + 7) % 7;
+      const shifted = (cur.lessonDates || []).map((d) => {
+        const dt = new Date(d + "T00:00:00Z");
+        dt.setUTCDate(dt.getUTCDate() + delta);
+        return dt.toISOString().slice(0, 10);
+      });
+      return {
+        ...cur,
+        day,
+        lessonDates: shifted.length ? shifted : defaultWeeksFromDate(season.startDate, day),
+      };
+    });
   };
   const updateDate = (idx, newDate) => setT((cur) => {
     const next = [...cur.lessonDates]; next[idx] = newDate; return { ...cur, lessonDates: next };
@@ -1576,6 +1639,25 @@ function TimeslotEditor({ timeslot, state, onSave, onClose }) {
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
         <h3>{timeslot.isNew ? "Add Timeslot" : "Edit Timeslot"}</h3>
+
+        {timeslot.isNew && state.timeslots.length > 0 && (
+          <>
+            <label className="field-label">Copy settings from an existing timeslot</label>
+            <select className="form-select" defaultValue={timeslot.copiedFrom || ""} onChange={(e) => applyCopy(e.target.value)}>
+              <option value="">— Start from scratch —</option>
+              {state.timeslots
+                .slice()
+                .sort((a, b) => slotLabel(a).localeCompare(slotLabel(b)))
+                .map((s) => <option key={s.id} value={s.id}>{slotLabel(s)}</option>)}
+            </select>
+            {copiedFromLabel && (
+              <p className="muted" style={{fontSize: "0.78rem", margin: "0 0 10px"}}>
+                Copied from <b>{copiedFromLabel}</b>. Adjust anything below, then Save to create it.
+              </p>
+            )}
+            <div className="divider-thin" />
+          </>
+        )}
 
         <label className="field-label">Location</label>
         <select className="form-select" value={t.location} onChange={(e) => setT({ ...t, location: e.target.value })}>
