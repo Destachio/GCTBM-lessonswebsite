@@ -1091,6 +1091,40 @@ body::after {
   margin-top: 2px;
 }
 
+/* ===== Season price grid (admin) ===== */
+.price-grid {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 8px;
+}
+.price-grid th {
+  text-align: left;
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--purple-700);
+  padding: 6px 8px;
+  background: rgba(37, 99, 235, 0.08);
+}
+.price-grid th:first-child { border-radius: 8px 0 0 8px; }
+.price-grid th:last-child  { border-radius: 0 8px 8px 0; }
+.price-grid td {
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(229, 231, 235, 0.7);
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--gray-700);
+  vertical-align: middle;
+}
+.price-grid tr:last-child td { border-bottom: none; }
+.price-input {
+  margin-bottom: 0 !important;
+  padding: 8px 10px !important;
+  width: 100%;
+  min-width: 80px;
+}
+
 /* ===== Member tag ===== */
 .member-tag {
   display: inline-block;

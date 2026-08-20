@@ -13,6 +13,9 @@ const SUPABASE_READY =
   !CONFIG.SUPABASE_URL.includes("REPLACE_WITH") &&
   !CONFIG.SUPABASE_ANON_KEY.includes("REPLACE_WITH");
 
+/* Where the "Go to Payment" button sends people. Edit PAYMENT_URL in config.js. */
+const PAYMENT_URL = CONFIG.PAYMENT_URL || "https://www.gctbm.nl/lessons-register.php";
+
 const SB = SUPABASE_READY
   ? window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_ANON_KEY, {
       auth: { persistSession: true, autoRefreshToken: true },
@@ -20,8 +23,8 @@ const SB = SUPABASE_READY
   : null;
 
 /* ------------------------------- Mappers -------------------------------- */
-const toUiSeason   = (r) => ({ id: r.id, name: r.name, startDate: r.start_date, price: Number(r.price), isCurrent: !!r.is_current });
-const toDbSeason   = (s) => ({ id: s.id, name: s.name, start_date: s.startDate, price: s.price, is_current: !!s.isCurrent });
+const toUiSeason   = (r) => ({ id: r.id, name: r.name, startDate: r.start_date, price: Number(r.price), pricing: r.pricing || null, isCurrent: !!r.is_current });
+const toDbSeason   = (s) => ({ id: s.id, name: s.name, start_date: s.startDate, price: s.price, pricing: s.pricing || null, is_current: !!s.isCurrent });
 const toUiLocation = (r) => ({ id: r.id, name: r.name, address: r.address, coach: r.coach });
 const toDbLocation = (l) => ({ id: l.id, name: l.name, address: l.address, coach: l.coach });
 const toUiTimeslot = (r) => ({
@@ -289,12 +292,24 @@ const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Frid
 const DAY_PLURAL = ["Sundays", "Mondays", "Tuesdays", "Wednesdays", "Thursdays", "Fridays", "Saturdays"];
 const TIME_BLOCKS = ["17:00-18:00", "18:00-19:00", "19:00-20:00"];
 
-/* Pricing — kept in sync with the server-side compute_price() function. */
-const PRICING = {
-  member:    { beginner: 135, intermediate: 110, advanced: 110 },
-  nonmember: { beginner: 175, intermediate: 150, advanced: 150 },
+/**
+ * Pricing lives on each season as a { level: { member, nonmember } } matrix and is
+ * edited in Admin → Seasons. These defaults only apply if a season is missing an
+ * entry, and mirror the fallback inside the server's compute_price() so the shown
+ * price can never disagree with the price actually charged.
+ */
+const DEFAULT_PRICING = {
+  beginner:     { member: 135, nonmember: 215 },
+  intermediate: { member: 100, nonmember: 170 },
+  advanced:     { member: 100, nonmember: 170 },
 };
-const priceFor = (level, isMember) => (isMember ? PRICING.member : PRICING.nonmember)[level] ?? 0;
+
+const priceFor = (season, level, isMember) => {
+  const table = (season && season.pricing) || DEFAULT_PRICING;
+  const row = table[level] || DEFAULT_PRICING[level] || {};
+  const value = Number(row[isMember ? "member" : "nonmember"]);
+  return Number.isFinite(value) ? value : 0;
+};
 
 /* ----------------------------- Util ---------------------------------- */
 const uid = (prefix) => `${prefix}-${Math.random().toString(36).slice(2, 9)}`;
@@ -744,11 +759,12 @@ function ScheduleModal({ timeslot, location, onClose }) {
 function Step4Confirm({ state, refresh, draft, setDraft, onComplete }) {
   const ts = state.timeslots.find((t) => t.id === draft.timeslotId);
   const loc = state.locations[ts?.location];
-  const season = state.seasons[state.currentSeason];
+  // Price from the timeslot's own season — that is what the server charges.
+  const season = state.seasons[ts?.season] || state.seasons[state.currentSeason];
   const avail = state.availability[ts?.id] || { booked: 0 };
   const isWaitlist = avail.booked >= (ts?.maxTrainees || 0);
 
-  const currentPrice = ts ? priceFor(ts.level, draft.isMember) : 0;
+  const currentPrice = ts ? priceFor(season, ts.level, draft.isMember) : 0;
   const invitingValid = !draft.inviting || draft.inviteeName.trim();
   const ready = draft.name.trim() && draft.email.trim() && draft.phone.trim() && invitingValid;
   const [submitting, setSubmitting] = useState(false);
@@ -956,7 +972,7 @@ function Step5Success({ state, draft, isWaitlist, onReset }) {
           ) : (
             <a
               className="primary-btn"
-              href="https://www.gctbm.nl/lessons-register.php"
+              href={PAYMENT_URL}
               target="_blank"
               rel="noopener noreferrer"
               onClick={() => { setTimeout(onReset, 100); }}
@@ -1792,8 +1808,32 @@ function AdminTrainees({ state, refresh }) {
 
 function AdminSeasons({ state, refresh }) {
   const [editing, setEditing] = useState(null);
+
+  // A half-typed or cleared box must never reach the database as "" or NaN,
+  // or a booking could price at 0.
+  const normalisePricing = (pricing) => {
+    const out = {};
+    for (const lvl of LEVELS) {
+      const row = (pricing && pricing[lvl.id]) || {};
+      const fallback = DEFAULT_PRICING[lvl.id];
+      const num = (v, dflt) => {
+        const n = Number(v);
+        return Number.isFinite(n) && n >= 0 ? n : dflt;
+      };
+      out[lvl.id] = {
+        member:    num(row.member,    fallback.member),
+        nonmember: num(row.nonmember, fallback.nonmember),
+      };
+    }
+    return out;
+  };
+
   const handleSave = async (season) => {
-    try { await db.upsertSeason(season); await refresh(); setEditing(null); } catch (e) { alert(e.message); }
+    try {
+      await db.upsertSeason({ ...season, pricing: normalisePricing(season.pricing) });
+      await refresh();
+      setEditing(null);
+    } catch (e) { alert(e.message); }
   };
   const handleDelete = async (id) => {
     if (Object.keys(state.seasons).length <= 1) { alert("At least one season is required."); return; }
@@ -1808,18 +1848,25 @@ function AdminSeasons({ state, refresh }) {
     <div>
       <div className="admin-section-head">
         <h3 className="admin-section-title">Seasons</h3>
-        <button className="add-btn" onClick={() => setEditing({ id: "", name: "", startDate: new Date().toISOString().slice(0, 10), price: 350, isCurrent: false, isNew: true })}>
+        <button className="add-btn" onClick={() => setEditing({ id: "", name: "", startDate: new Date().toISOString().slice(0, 10), price: 350, pricing: JSON.parse(JSON.stringify(DEFAULT_PRICING)), isCurrent: false, isNew: true })}>
           <Icon.Plus /> Add
         </button>
       </div>
       <table className="admin-table">
-        <thead><tr><th>Name</th><th>Starts</th><th>Price</th><th>Active</th><th></th></tr></thead>
+        <thead><tr><th>Name</th><th>Starts</th><th>Prices (member / non-member)</th><th>Active</th><th></th></tr></thead>
         <tbody>
           {Object.values(state.seasons).map((s) => (
             <tr key={s.id}>
               <td><b>{s.name}</b></td>
               <td>{formatShortDate(s.startDate)}</td>
-              <td>€{s.price}</td>
+              <td style={{whiteSpace: "nowrap", fontSize: "0.8rem"}}>
+                {LEVELS.map((lvl) => (
+                  <div key={lvl.id}>
+                    <span className="muted">{lvl.name.slice(0, 3)}:</span>{" "}
+                    €{priceFor(s, lvl.id, true)} / €{priceFor(s, lvl.id, false)}
+                  </div>
+                ))}
+              </td>
               <td>{s.id === state.currentSeason ? <span className="trainee-status booked">Active</span> : <button className="row-action" onClick={() => setActive(s.id)}>Set Active</button>}</td>
               <td>
                 <div className="admin-row-actions">
@@ -1840,8 +1887,45 @@ function AdminSeasons({ state, refresh }) {
             <input className="form-input" value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value, id: editing.isNew ? e.target.value.toLowerCase().replace(/\s+/g, "-") : editing.id })} />
             <label className="field-label">Start date</label>
             <input className="form-input" type="date" value={editing.startDate} onChange={(e) => setEditing({ ...editing, startDate: e.target.value })} />
-            <label className="field-label">Total price (€)</label>
-            <input className="form-input" type="number" min="0" value={editing.price} onChange={(e) => setEditing({ ...editing, price: Number(e.target.value) })} />
+
+            <label className="field-label">Course prices (€)</label>
+            <p className="muted" style={{fontSize: "0.78rem", margin: "0 0 8px"}}>
+              Charged per course. The trainee's total is picked automatically from their level and whether they tick "GCTBM club member" at checkout.
+            </p>
+            <table className="price-grid">
+              <thead>
+                <tr><th>Level</th><th>Member</th><th>Non-member</th></tr>
+              </thead>
+              <tbody>
+                {LEVELS.map((lvl) => {
+                  const row = (editing.pricing && editing.pricing[lvl.id]) || DEFAULT_PRICING[lvl.id];
+                  const setPrice = (kind, value) => setEditing((cur) => ({
+                    ...cur,
+                    pricing: {
+                      ...DEFAULT_PRICING,
+                      ...(cur.pricing || {}),
+                      [lvl.id]: { ...row, [kind]: value === "" ? "" : Number(value) },
+                    },
+                  }));
+                  return (
+                    <tr key={lvl.id}>
+                      <td>{lvl.name}</td>
+                      <td>
+                        <input className="form-input price-input" type="number" min="0" step="1"
+                          value={row.member}
+                          onChange={(e) => setPrice("member", e.target.value)} />
+                      </td>
+                      <td>
+                        <input className="form-input price-input" type="number" min="0" step="1"
+                          value={row.nonmember}
+                          onChange={(e) => setPrice("nonmember", e.target.value)} />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+
             <div className="modal-actions">
               <button className="secondary-btn" onClick={() => setEditing(null)}>Cancel</button>
               <button className="primary-btn" disabled={!editing.name || !editing.id} onClick={() => handleSave({ ...editing, isNew: undefined })}>Save</button>
