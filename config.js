@@ -14,7 +14,7 @@ window.GCTBM_CONFIG = {
      button. This is the address it opens. Keep the quote marks and
      the https:// prefix.
      ------------------------------------------------------- */
-  PAYMENT_URL: "https://www.gctbm.nl/lessons-register.php",
+  PAYMENT_URL: "https://www.gctbm.nl/event.php?id=335",
 
   /* -------------------------------------------------------
      DATABASE CONNECTION — do not change these two.
