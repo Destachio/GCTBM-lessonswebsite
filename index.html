@@ -7,16 +7,24 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="styles.css?v=7" />
+  <link rel="stylesheet" href="styles.css?v=8" />
 </head>
 <body>
   <div id="root"></div>
 
-  <script src="config.js?v=7"></script>
+  <script src="config.js?v=8"></script>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-  <script type="text/babel" data-presets="env,react" src="app.js?v=7"></script>
+  <!--
+    Babel is pinned to major version 7 on purpose. Babel 8 changed the default JSX
+    runtime from "classic" to "automatic", which makes it emit
+    `import { jsx } from "react/jsx-runtime"`. Babel-standalone injects its output
+    as a classic (non-module) script, so that import throws
+    "Cannot use import statement outside a module" and the whole app fails to
+    render. Do not change this to an unpinned URL.
+  -->
+  <script src="https://unpkg.com/@babel/standalone@7/babel.min.js"></script>
+  <script type="text/babel" data-presets="react" src="app.js?v=8"></script>
 </body>
 </html>
