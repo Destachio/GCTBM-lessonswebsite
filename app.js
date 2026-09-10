@@ -1014,7 +1014,8 @@ function Step5Success({ state, draft, isWaitlist, onReset }) {
           )}
         </div>
         <div className="success-footer">
-          Confirmation sent to <b>{draft.email}</b>
+          A confirmation email is on its way to <b>{draft.email}</b>
+          <div style={{marginTop: 4}}>Not there in a few minutes? Check your spam folder.</div>
         </div>
       </div>
     </div>
